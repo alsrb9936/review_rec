@@ -41,10 +41,6 @@ data:
     valid_ratio: 0.1
   load_review_text: false
 
-hidden_dim: 64
-num_layers: 2
-dropout: 0.1
-
 experiment:
   seed: 42
   device: 0

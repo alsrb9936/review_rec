@@ -26,4 +26,5 @@ model:
   hidden_dim: 64
   num_filters: 100
   kernel_size: 3
-  dropout: 0.5
+  dropout: 0.2
+  fm_k: 8

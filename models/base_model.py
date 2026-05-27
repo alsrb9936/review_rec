@@ -1,8 +1,8 @@
 import abc
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig
-
 
 class BaseModel(nn.Module, abc.ABC):
     def __init__(self, cfg: DictConfig):
@@ -18,38 +18,33 @@ class BaseModel(nn.Module, abc.ABC):
         ...
 
 class TextCNN(nn.Module):
-    def __init__(self, hyper_params, window_sizes = [3]):
+    def __init__(self, hyper_params):
         super(TextCNN, self).__init__()
         self.hyper_params = hyper_params
 
-        self.num_filters = 100
-        self.kernel_size = 5
+        self.num_filters = int(hyper_params["num_filters"])
+        self.kernel_size = int(hyper_params["kernel_size"])
+        self.word_embed_size = int(hyper_params["word_embed_size"])
+        self.latent_size = int(hyper_params["latent_size"])
 
-        self.convs = nn.ModuleList([
-            nn.Conv2d(1, self.num_filters, [window_size, self.hyper_params['word_embed_size']], padding=(window_size - 1, 0))
-            for window_size in window_sizes
-        ])
+        self.conv = nn.Conv2d(
+            in_channels=1,
+            out_channels=self.num_filters,
+            kernel_size=(self.kernel_size, self.word_embed_size),
+            padding=(self.kernel_size - 1, 0),
+        )
 
-        self.fc = nn.Linear(self.num_filters * len(window_sizes), hyper_params['latent_size'])
-        self.dropout = nn.Dropout(hyper_params['dropout'])
+        self.fc = nn.Linear(self.num_filters, self.latent_size)
+        self.dropout = nn.Dropout(float(hyper_params["dropout"]))
 
     def forward(self, x):
-        in_shape = x.shape                     # [bsz x (num_reviews*num_words) x word_embedding]
-
-        # Apply a convolution + max pool layer for each window size
-        x = torch.unsqueeze(x, 1)              # [B, C, T, E] Add a channel dim.
-        xs = []
-        for conv in self.convs:
-            x2 = F.relu(conv(x))               # [B, F, T, 1]
-            x2 = torch.squeeze(x2, -1)         # [B, F, T]
-            x2 = F.max_pool1d(x2, x2.size(2))  # [B, F, 1]
-            xs.append(x2)
-        x = torch.cat(xs, 2)                   # [B, F, window]
-
-        # FC
-        x = x.view(x.size(0), -1)              # [B, F * window]
-        x = self.dropout(self.fc(x))           # [B, class]
-
+        # x: [batch_size, num_reviews * num_words, word_embedding]
+        x = torch.unsqueeze(x, 1)      # [B, 1, T, E]
+        x = F.relu(self.conv(x))       # [B, num_filters, T', 1]
+        x = torch.squeeze(x, -1)       # [B, num_filters, T']
+        x = F.max_pool1d(x, x.size(2)) # [B, num_filters, 1]
+        x = torch.squeeze(x, -1)       # [B, num_filters]
+        x = self.dropout(self.fc(x))   # [B, latent_size]
         return x
 
 class TorchFM(nn.Module):
