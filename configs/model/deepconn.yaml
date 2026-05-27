@@ -1,3 +1,7 @@
+# @package _global_
+
+model_name: deepconn
+
 data:
   review_length: 100
   review_count: 10

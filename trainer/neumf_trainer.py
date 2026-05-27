@@ -29,9 +29,10 @@ class NeuMFTrainer(BaseTrainer):
 
         with torch.no_grad():
             for batch in data_loader:
-                user_id = batch["user_id"].to(self.device)
-                item_id = batch["item_id"].to(self.device)
-                rating = batch["rating"].to(self.device)
+                batch = self._move_batch_to_device(batch)
+                user_id = batch["user_id"]
+                item_id = batch["item_id"]
+                rating = batch["rating"]
 
                 preds = self.model(user_id, item_id)
                 all_preds.append(preds.cpu())

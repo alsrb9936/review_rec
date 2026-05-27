@@ -2,7 +2,7 @@
 
 defaults:
   - _self_
-  - model: null
+  - model: neumf
 
 hydra:
   run:
@@ -41,7 +41,6 @@ data:
     valid_ratio: 0.1
   load_review_text: false
 
-model_name: base
 hidden_dim: 64
 num_layers: 2
 dropout: 0.1

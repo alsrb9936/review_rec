@@ -2,7 +2,8 @@ import abc
 import os
 import torch
 import torch.nn as nn
-from omegaconf import DictConfig
+from datetime import datetime
+from omegaconf import DictConfig, open_dict
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -12,6 +13,15 @@ class BaseTrainer(abc.ABC):
         self.model = model
         self.cfg = cfg
         self.device = device
+
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir_name = f"{cfg.model_name}_{cfg.data.dataset}_{cfg.experiment.seed}_{current_time}"
+        
+        with open_dict(cfg):
+            cfg.experiment.save_dir = os.path.join(cfg.experiment.save_dir, run_dir_name)
+        
+        os.makedirs(cfg.experiment.save_dir, exist_ok=True)
+        print(f"Save directory: {cfg.experiment.save_dir}")
 
         if cfg.training.optimizer == "Adam":
             self.optimizer = torch.optim.Adam(

@@ -1,7 +1,7 @@
 import torch
 import pandas as pd
 from omegaconf import DictConfig
-
+from typing import Optional
 from dataset.base_dataset import BaseDataset
 
 
@@ -11,9 +11,9 @@ class DeepCoNNDataset(BaseDataset):
         df: pd.DataFrame,
         cfg: DictConfig,
         split: str = "train",
-        user_review_bank: dict | None = None,
-        item_review_bank: dict | None = None,
-        pair_pos: dict | None = None,
+        user_review_bank: Optional[dict] = None,
+        item_review_bank: Optional[dict] = None,
+        pair_pos: Optional[dict] = None,
     ):
         super().__init__(df, cfg, split)
 

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 from trainer.base_trainer import BaseTrainer
-from utils.metric import calculate_rating_metrics
+from utils.metric import compute_all_metrics
 
 
 class DeepCoNNTrainer(BaseTrainer):
@@ -23,8 +23,8 @@ class DeepCoNNTrainer(BaseTrainer):
     def evaluate(self, data_loader):
         self.model.eval()
 
-        preds = []
-        labels = []
+        all_preds = []
+        all_targets = []
 
         with torch.no_grad():
             for batch in data_loader:
@@ -35,21 +35,10 @@ class DeepCoNNTrainer(BaseTrainer):
 
                 pred = self.model(user_reviews, item_reviews)
 
-                all_preds.append(pred.detach().cpu())
-                all_labels.append(rating)
+                all_preds.append(pred.cpu())
+                all_targets.append(rating.cpu())
 
-        preds = torch.cat(preds, dim=0)
-        labels = torch.cat(labels, dim=0)
+        all_preds = torch.cat(all_preds)
+        all_targets = torch.cat(all_targets)
 
-        mse = F.mse_loss(preds, labels).item()
-        mae = F.l1_loss(preds, labels).item()
-        rmse = mse ** 0.5
-
-        return {
-            "mae": mae,
-            "mse": mse,
-            "rmse": rmse,
-        }
-
-    def get_metric_name(self) -> str:
-        return "rmse"
+        return compute_all_metrics(all_preds, all_targets)

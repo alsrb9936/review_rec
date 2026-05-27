@@ -8,5 +8,5 @@ dropout: 0.2
 
 training:
   lr: 0.0005
-  batch: 256
+  batch: 512
   epoch: 150
