@@ -9,7 +9,13 @@ data:
 
 w2v:
   embedding_dim: 64
+  window: 1
+  min_count: 1
+  workers: 4
+  sg: 1
+  negative: 64
   max_vocab: 50000
+  epochs: 20
 
 model:
   freeze_word_embedding: false

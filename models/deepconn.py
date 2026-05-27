@@ -27,10 +27,7 @@ class DeepCoNN(nn.Module):
             nn.Linear(cfg.model.hidden_dim, 1),
         )
 
-    def forward(self, batch):
-        user_reviews = batch["user_reviews"]
-        item_reviews = batch["item_reviews"]
-
+    def forward(self, user_reviews, item_reviews):
         user_emb = self.word_embedding(user_reviews)
         item_emb = self.word_embedding(item_reviews)
 
@@ -44,3 +41,9 @@ class DeepCoNN(nn.Module):
 
         out = self.predictor(torch.cat([user_vec, item_vec], dim=-1))
         return out
+    
+    def calculate_loss(self, user_reviews, item_reviews, rating):
+        predictions = self.forward(user_reviews, item_reviews)
+        loss_fn = nn.MSELoss()
+        loss = loss_fn(predictions.squeeze(), rating.float())
+        return loss

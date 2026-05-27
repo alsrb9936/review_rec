@@ -3,7 +3,8 @@ import json
 import os
 import re
 import pickle
-from collections.abc import Sequence, Counter, defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Sequence
 from typing import Any
 from tqdm.auto import tqdm
 
@@ -91,7 +92,7 @@ def normalize_review_embedding(value: Any) -> list[float]:
 def tokenize_review(text):
     if not isinstance(text, str):
         return []
-    string = re.sub(r"[^A-Za-z]", " ", string)
+    string = re.sub(r"[^A-Za-z]", " ", text)
     string = re.sub(r"\'s", " \'s", string)
     string = re.sub(r"\'ve", " \'ve", string)
     string = re.sub(r"n\'t", " n\'t", string)
@@ -157,12 +158,13 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
     model = Word2Vec(
         sentences=train_tokens,
         vector_size=embedding_dim,
-        window=1,
-        min_count=1,
-        workers=-1,
-        sg=1,
-        negative=64,
-        epochs=20,
+        window=int(cfg.w2v.window),
+        min_count=int(cfg.w2v.min_count),
+        workers=int(cfg.w2v.workers),
+        sg=int(cfg.w2v.sg),
+        negative=int(cfg.w2v.negative),
+        epochs=int(cfg.w2v.epochs),
+        seed=int(cfg.experiment.seed),
     )
 
     embedding = np.random.normal(
@@ -180,10 +182,10 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
     return embedding
 
 
-def build_deepconn_resources(train_df, valid_df, test_df, cfg):
+def build_review_text_resources(train_df, valid_df, test_df, cfg):
     resource_dir = os.path.join(
         cfg.experiment.save_dir,
-        "deepconn_resources",
+        "review_text_resources",
         cfg.data.dataset,
     )
     os.makedirs(resource_dir, exist_ok=True)
@@ -192,7 +194,7 @@ def build_deepconn_resources(train_df, valid_df, test_df, cfg):
 
     if "review_text" not in train_df.columns:
         raise ValueError(
-            "DeepCoNN requires review_text column. "
+            "Review-text models require review_text column. "
             "Run with data.load_review_text=true and check .review file."
         )
 

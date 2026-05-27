@@ -7,12 +7,14 @@ from utils.metric import calculate_rating_metrics
 
 class DeepCoNNTrainer(BaseTrainer):
     def train_step(self, batch) -> torch.Tensor:
+        self.model.train()
         self.optimizer.zero_grad()
-
-        pred = self.model(batch)
         rating = batch["rating"]
+        user_reviews = batch["user_reviews"]
+        item_reviews = batch["item_reviews"]
 
-        loss = F.mse_loss(pred, rating)
+
+        loss = self.model.calculate_loss(user_reviews, item_reviews, rating)
         loss.backward()
         self.optimizer.step()
 
@@ -27,10 +29,14 @@ class DeepCoNNTrainer(BaseTrainer):
         with torch.no_grad():
             for batch in data_loader:
                 batch = self._move_batch_to_device(batch)
-                pred = self.model(batch)
+                rating = batch["rating"]
+                user_reviews = batch["user_reviews"]
+                item_reviews = batch["item_reviews"]
 
-                preds.append(pred.detach().cpu())
-                labels.append(batch["rating"].detach().cpu())
+                pred = self.model(user_reviews, item_reviews)
+
+                all_preds.append(pred.detach().cpu())
+                all_labels.append(rating)
 
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0)

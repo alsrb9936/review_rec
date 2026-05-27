@@ -8,10 +8,12 @@ import pandas as pd
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, open_dict
-from utils.preprocess import build_deepconn_resources
+from utils.preprocess import build_review_text_resources
 from torch.utils.data import DataLoader
 
 from dataset import DATASET_DICT
+
+REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
 
 
 def set_seed(seed: int) -> None:
@@ -191,14 +193,15 @@ def split_by_ratio(df, train_ratio=0.8, valid_ratio=0.1, random_state=42):
 
 
 def get_dataloader(train_df, valid_df, test_df, cfg: DictConfig):
-    model_name = cfg.model_name
+    model_name = cfg.model_name.lower()
+
     if model_name not in DATASET_DICT:
         raise ValueError(f"Dataset class for model '{model_name}' is not registered in DATASET_DICT.")
 
     dataset_cls = DATASET_DICT[model_name]
 
-    if model_name in ["DeepCoNN", "NARRE", "TransNet"]:
-        resources = build_deepconn_resources(train_df, valid_df, test_df, cfg)
+    if model_name in REVIEW_TEXT_MODEL_NAMES:
+        resources = build_review_text_resources(train_df, valid_df, test_df, cfg)
 
         with open_dict(cfg):
             cfg.data.word_embedding_path = resources["word_embedding_path"]
