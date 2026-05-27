@@ -192,7 +192,9 @@ def split_by_ratio(df, train_ratio=0.8, valid_ratio=0.1, random_state=42):
     return train_df, valid_df, test_df
 
 
-def get_dataloader(train_df, valid_df, test_df, cfg: DictConfig):
+def get_dataloader(cfg: DictConfig):
+    interactions = load_interaction_data(cfg)
+    train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
     model_name = cfg.model_name.lower()
 
     if model_name not in DATASET_DICT:

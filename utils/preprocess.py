@@ -184,7 +184,7 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
 
 def build_review_text_resources(train_df, valid_df, test_df, cfg):
     resource_dir = os.path.join(
-        cfg.experiment.save_dir,
+        cfg.data.cache_dir,
         "review_text_resources",
         cfg.data.dataset,
     )

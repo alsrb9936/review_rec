@@ -24,6 +24,7 @@ evaluation:
 
 data:
   root: /home/infolab/mnt/mingyu/review_rec/dataset
+  cache_dir: /home/infolab/mnt/mingyu/review_rec/cached
   dataset: Amazon_All_Beauty_18
   interaction_file: null
   review_file: null

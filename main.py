@@ -35,21 +35,14 @@ def main(cfg: DictConfig) -> None:
     device = torch.device(device_str)
     print(f"Device: {device}")
 
-    interactions = load_interaction_data(cfg)
-    train_df, valid_df, test_df = split_by_ratio(
-        interactions,
-        train_ratio=cfg.data.split.train_ratio,
-        valid_ratio=cfg.data.split.valid_ratio,
-        random_state=cfg.experiment.seed,
-    )
+    train_loader, valid_loader, test_loader = get_dataloader(cfg)
 
     print(
         f"Loaded interactions "
-        f"(train={len(train_df)}, valid={len(valid_df)}, test={len(test_df)}) "
-        f"with columns={list(interactions.columns)}"
+        f"(train={len(train_loader.dataset)}, valid={len(valid_loader.dataset)}, test={len(test_loader.dataset)}) "
+        f"with columns={list(load_interaction_data(cfg).columns)}"
     )
 
-    train_loader, valid_loader, test_loader = get_dataloader(train_df, valid_df, test_df, cfg)
     print(f"Created dataloaders for model='{cfg.model_name}'")
 
     model_name = cfg.model_name
