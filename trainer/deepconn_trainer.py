@@ -42,3 +42,6 @@ class DeepCoNNTrainer(BaseTrainer):
         all_targets = torch.cat(all_targets)
 
         return compute_all_metrics(all_preds, all_targets)
+
+    def get_metric_name(self) -> str:
+        return "rmse"

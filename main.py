@@ -1,16 +1,19 @@
+from collections.abc import Sized
+
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader
 
 from dataset import DATASET_DICT
 from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
-from utils.util import load_interaction_data, set_seed, split_by_ratio, get_dataloader
+from utils.util import load_interaction_data, set_seed, get_dataloader
 
 
-def _maybe_report_training_state(cfg: DictConfig) -> None:
-    model_name = cfg.model_name
-    missing = []
+def _maybe_report_training_state(cfg: DictConfig) -> bool:
+    model_name = str(cfg.model_name)
+    missing: list[str] = []
 
     if model_name not in MODEL_DICT:
         missing.append("model registry")
@@ -26,6 +29,13 @@ def _maybe_report_training_state(cfg: DictConfig) -> None:
     return True
 
 
+def _dataset_size(loader: DataLoader[object]) -> int:
+    dataset = loader.dataset
+    if isinstance(dataset, Sized):
+        return len(dataset)
+    return 0
+
+
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
@@ -34,22 +44,23 @@ def main(cfg: DictConfig) -> None:
     device_str = f"cuda:{cfg.experiment.device}" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_str)
     print(f"Device: {device}")
+    model_name = str(cfg.model_name)
+    if not _maybe_report_training_state(cfg):
+        return
 
     train_loader, valid_loader, test_loader = get_dataloader(cfg)
 
     print(
         f"Loaded interactions "
-        f"(train={len(train_loader.dataset)}, valid={len(valid_loader.dataset)}, test={len(test_loader.dataset)}) "
+        f"(train={_dataset_size(train_loader)}, valid={_dataset_size(valid_loader)}, test={_dataset_size(test_loader)}) "
         f"with columns={list(load_interaction_data(cfg).columns)}"
     )
 
     print(f"Created dataloaders for model='{cfg.model_name}'")
 
-    model_name = cfg.model_name
-    if _maybe_report_training_state(cfg):
-        model = MODEL_DICT[model_name](cfg).to(device)
-        trainer = MODEL_TRAINER_DICT[model_name](model, cfg, device)
-        trainer.train(train_loader, valid_loader, test_loader)
+    model = MODEL_DICT[model_name](cfg).to(device)
+    trainer = MODEL_TRAINER_DICT[model_name](model, cfg, device)
+    trainer.train(train_loader, valid_loader, test_loader)
 
 
 if __name__ == "__main__":

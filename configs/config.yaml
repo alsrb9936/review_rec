@@ -2,7 +2,7 @@
 
 defaults:
   - _self_
-  - model: neumf
+  - model: base
 
 hydra:
   run:
@@ -24,10 +24,10 @@ evaluation:
 
 data:
   root: /home/infolab/mnt/mingyu/review_rec/dataset
-  cache_dir: /home/infolab/mnt/mingyu/review_rec/cached
+  cache_dir: /home/infolab/mnt/mingyu/review_rec/review4rec/cached
   dataset: Amazon_All_Beauty_18
-  interaction_file: null
-  review_file: null
+  # interaction_file: null
+  # review_file: null
   separator: "\t"
   columns:
     user_id: user_id
@@ -39,7 +39,6 @@ data:
   split:
     train_ratio: 0.8
     valid_ratio: 0.1
-  load_review_text: false
 
 experiment:
   seed: 42

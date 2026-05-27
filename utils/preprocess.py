@@ -132,12 +132,12 @@ def encode_tokens(tokens, word2idx):
     return [word2idx.get(token, unk_id) for token in tokens]
 
 
-def build_user_item_review_bank(train_df):
+def build_user_item_review_bank(df):
     user_reviews = defaultdict(list)
     item_reviews = defaultdict(list)
     pair_pos = {}
 
-    for row in train_df.itertuples(index=False):
+    for row in df.itertuples(index=False):
         user_id = int(row.user_id)
         item_id = int(row.item_id)
         review_ids = list(row.review_ids)
@@ -182,47 +182,36 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
     return embedding
 
 
-def build_review_text_resources(train_df, valid_df, test_df, cfg):
-    resource_dir = os.path.join(
-        cfg.data.cache_dir,
-        "review_text_resources",
-        cfg.data.dataset,
-    )
-    os.makedirs(resource_dir, exist_ok=True)
+def _save_cache(resource_dir, word_embedding, word2idx, user_reviews, item_reviews,
+                pair_pos, train_df, valid_df, test_df):
+    np.save(os.path.join(resource_dir, "word_embedding.npy"), word_embedding)
+    with open(os.path.join(resource_dir, "word2idx.pkl"), "wb") as f:
+        pickle.dump(word2idx, f)
+    with open(os.path.join(resource_dir, "user_reviews.pkl"), "wb") as f:
+        pickle.dump(user_reviews, f)
+    with open(os.path.join(resource_dir, "item_reviews.pkl"), "wb") as f:
+        pickle.dump(item_reviews, f)
+    with open(os.path.join(resource_dir, "pair_pos.pkl"), "wb") as f:
+        pickle.dump(pair_pos, f)
+    train_df.to_pickle(os.path.join(resource_dir, "train_df.pkl"))
+    valid_df.to_pickle(os.path.join(resource_dir, "valid_df.pkl"))
+    test_df.to_pickle(os.path.join(resource_dir, "test_df.pkl"))
 
+
+def _load_cache(resource_dir):
     word_embedding_path = os.path.join(resource_dir, "word_embedding.npy")
-
-    if "review_text" not in train_df.columns:
-        raise ValueError(
-            "Review-text models require review_text column. "
-            "Run with data.load_review_text=true and check .review file."
-        )
-
-    train_df = train_df.copy()
-    valid_df = valid_df.copy()
-    test_df = test_df.copy()
-
-    train_df["tokens"] = train_df["review_text"].apply(tokenize_review)
-    valid_df["tokens"] = valid_df["review_text"].apply(tokenize_review)
-    test_df["tokens"] = test_df["review_text"].apply(tokenize_review)
-
-    train_tokens = train_df["tokens"].tolist()
-
-    word2idx = build_word2idx(
-        train_tokens,
-        max_vocab=int(cfg.w2v.max_vocab),
-        min_count=int(cfg.w2v.min_count),
-    )
-
-    train_df["review_ids"] = train_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
-    valid_df["review_ids"] = valid_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
-    test_df["review_ids"] = test_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
-
-    user_reviews, item_reviews, pair_pos = build_user_item_review_bank(train_df)
-    word_embedding = train_gensim_word2vec(train_tokens, word2idx, cfg)
-
-    np.save(word_embedding_path, word_embedding)
-
+    word_embedding = np.load(word_embedding_path)
+    with open(os.path.join(resource_dir, "word2idx.pkl"), "rb") as f:
+        word2idx = pickle.load(f)
+    with open(os.path.join(resource_dir, "user_reviews.pkl"), "rb") as f:
+        user_reviews = pickle.load(f)
+    with open(os.path.join(resource_dir, "item_reviews.pkl"), "rb") as f:
+        item_reviews = pickle.load(f)
+    with open(os.path.join(resource_dir, "pair_pos.pkl"), "rb") as f:
+        pair_pos = pickle.load(f)
+    train_df = pd.read_pickle(os.path.join(resource_dir, "train_df.pkl"))
+    valid_df = pd.read_pickle(os.path.join(resource_dir, "valid_df.pkl"))
+    test_df = pd.read_pickle(os.path.join(resource_dir, "test_df.pkl"))
     return {
         "train_df": train_df,
         "valid_df": valid_df,
@@ -233,3 +222,83 @@ def build_review_text_resources(train_df, valid_df, test_df, cfg):
         "pair_pos": pair_pos,
         "word_embedding_path": word_embedding_path,
     }
+
+
+def build_review_text_resources(train_df, valid_df, test_df, cfg):
+
+    resource_dir = os.path.join(
+        cfg.data.cache_dir,
+        "review_text_resources",
+        cfg.data.dataset,
+    )
+
+    if not os.path.exists(resource_dir):
+        os.makedirs(resource_dir, exist_ok=True)
+
+    word_embedding_path = os.path.join(resource_dir, "word_embedding.npy")
+
+    cache_files = [
+        word_embedding_path,
+        os.path.join(resource_dir, "word2idx.pkl"),
+        os.path.join(resource_dir, "user_reviews.pkl"),
+        os.path.join(resource_dir, "item_reviews.pkl"),
+        os.path.join(resource_dir, "pair_pos.pkl"),
+        os.path.join(resource_dir, "train_df.pkl"),
+        os.path.join(resource_dir, "valid_df.pkl"),
+        os.path.join(resource_dir, "test_df.pkl"),
+    ]
+    cache_exists = all(os.path.exists(f) for f in cache_files)
+
+    if not cache_exists:
+        if "review_text" not in train_df.columns:
+            raise ValueError(
+                "Review-text models require review_text column. "
+                "Run with data.load_review_text=true and check .review file."
+            )
+
+        train_df = train_df.copy()
+        valid_df = valid_df.copy()
+        test_df = test_df.copy()
+
+        train_df["tokens"] = train_df["review_text"].apply(tokenize_review)
+        valid_df["tokens"] = valid_df["review_text"].apply(tokenize_review)
+        test_df["tokens"] = test_df["review_text"].apply(tokenize_review)
+
+        train_tokens = train_df["tokens"].tolist()
+
+        word2idx = build_word2idx(
+            train_tokens,
+            max_vocab=int(cfg.w2v.max_vocab),
+            min_count=int(cfg.w2v.min_count),
+        )
+
+        train_df["review_ids"] = train_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
+        valid_df["review_ids"] = valid_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
+        test_df["review_ids"] = test_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
+
+        if cfg.data.retain_rui:
+            all_df = pd.concat([train_df, valid_df, test_df], ignore_index=True)
+            user_reviews, item_reviews, pair_pos = build_user_item_review_bank(all_df)
+        else:
+            user_reviews, item_reviews, pair_pos = build_user_item_review_bank(train_df)
+
+        word_embedding = train_gensim_word2vec(train_tokens, word2idx, cfg)
+
+        _save_cache(
+            resource_dir, word_embedding, word2idx, user_reviews, item_reviews,
+            pair_pos, train_df, valid_df, test_df
+        )
+
+        return {
+            "train_df": train_df,
+            "valid_df": valid_df,
+            "test_df": test_df,
+            "word2idx": word2idx,
+            "user_reviews": user_reviews,
+            "item_reviews": item_reviews,
+            "pair_pos": pair_pos,
+            "word_embedding_path": word_embedding_path,
+        }
+
+    else:
+        return _load_cache(resource_dir)

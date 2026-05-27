@@ -25,23 +25,6 @@ def set_seed(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
 
 
-def _interaction_file_path(cfg: DictConfig) -> str:
-    if cfg.data.interaction_file:
-        return to_absolute_path(cfg.data.interaction_file)
-    dataset_name = cfg.data.dataset
-    return to_absolute_path(os.path.join(cfg.data.root, dataset_name, f"{dataset_name}.inter"))
-
-
-def _review_file_path(cfg: DictConfig) -> Optional[str]:
-    if cfg.data.review_file:
-        return to_absolute_path(cfg.data.review_file)
-    dataset_name = cfg.data.dataset
-    review_path = to_absolute_path(os.path.join(cfg.data.root, dataset_name, f"{dataset_name}.review"))
-    if os.path.exists(review_path):
-        return review_path
-    return None
-
-
 def _rename_columns(frame: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
     frame = frame.copy()
     frame.columns = [column.split(":")[0] for column in frame.columns]
@@ -98,9 +81,8 @@ def _apply_id_mapping(interactions: pd.DataFrame, cfg: DictConfig) -> pd.DataFra
 
 
 def load_interaction_data(cfg: DictConfig) -> pd.DataFrame:
-    interaction_path = _interaction_file_path(cfg)
-    print(f"Load interaction data from {interaction_path}")
-
+    data_root_path = to_absolute_path(f"{cfg.data.root}/{cfg.data.dataset}")
+    interaction_path = to_absolute_path(f"{data_root_path}/{cfg.data.dataset}.inter")
     interactions = pd.read_csv(interaction_path, sep=cfg.data.separator)
     interactions = _rename_columns(interactions, cfg)
 
@@ -117,20 +99,19 @@ def load_interaction_data(cfg: DictConfig) -> pd.DataFrame:
         interactions["rating"] = pd.to_numeric(interactions["rating"], errors="coerce")
 
     if cfg.data.get("load_review_text", False):
-        review_path = _review_file_path(cfg)
-        if review_path:
-            print(f"Merging review text from {review_path}")
-            review_df = pd.read_csv(review_path, sep=cfg.data.separator)
-            review_df = _rename_columns(review_df, cfg)
-            if "review_text" in review_df.columns:
-                merge_keys = ["user_id", "item_id"]
-                interactions = pd.merge(interactions, review_df[merge_keys + ["review_text"]], on=merge_keys, how="left")
-                interactions["review_text"] = interactions["review_text"].fillna("").astype(str)
-                print(f"Merged {len(interactions)} rows with review text")
+        review_path = to_absolute_path(f"{data_root_path}/{cfg.data.dataset}.review")
+        review_df = pd.read_csv(review_path, sep=cfg.data.separator)
+        review_df = _rename_columns(review_df, cfg)
+
+        if "review_text" in review_df.columns:
+            merge_keys = ["user_id", "item_id"]
+            interactions = pd.merge(interactions, review_df[merge_keys + ["review_text"]], on=merge_keys, how="left")
+            interactions["review_text"] = interactions["review_text"].fillna("").astype(str)
+            print(f"Merged {len(interactions)} rows with review text")
         else:
             print("Review file not found, skipping review text merge")
 
-    interactions = interactions.sort_values("timestamp").reset_index(drop=True)
+    # interactions = interactions.sort_values("timestamp").reset_index(drop=True)
     interactions = _apply_id_mapping(interactions, cfg)
 
     print(
@@ -215,7 +196,6 @@ def get_dataloader(cfg: DictConfig):
             split="train",
             user_review_bank=resources["user_reviews"],
             item_review_bank=resources["item_reviews"],
-            pair_pos=resources["pair_pos"],
         )
 
         valid_dataset = dataset_cls(
@@ -239,8 +219,10 @@ def get_dataloader(cfg: DictConfig):
         valid_dataset = dataset_cls(valid_df, cfg, split="valid")
         test_dataset = dataset_cls(test_df, cfg, split="test")
 
+    
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
     valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
 
+    del train_df, valid_df, test_df, train_dataset, valid_dataset, test_dataset
     return train_dataloader, valid_dataloader, test_dataloader

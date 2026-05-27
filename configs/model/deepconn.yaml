@@ -3,7 +3,7 @@
 model_name: deepconn
 
 data:
-  review_length: 100
+  review_length: 40
   review_count: 10
   lowest_r_count: 1
   retain_rui: false
@@ -26,5 +26,14 @@ model:
   hidden_dim: 64
   num_filters: 100
   kernel_size: 3
-  dropout: 0.2
-  fm_k: 8
+  dropout: 0.1
+  fm_k: 10
+
+training:
+  batch: 256
+  eval_batch: 512
+  epoch: 600
+  lr: 0.001
+  weight_decay: 0.0
+  lr_decay: 0
+  optimizer: Adam

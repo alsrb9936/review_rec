@@ -32,7 +32,7 @@ class DeepCoNN(BaseModel):
 
         self.user_cnn = TextCNN(hyper_params)
         self.item_cnn = TextCNN(hyper_params)
-
+        self.global_bias = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.fm = TorchFM(n=hidden_dim * 2, k=int(cfg.model.fm_k))
         self.loss_fn = nn.MSELoss()
 
@@ -50,7 +50,7 @@ class DeepCoNN(BaseModel):
         item_vec = self.item_cnn(item_emb)
 
         x = torch.cat([user_vec, item_vec], dim=-1)
-        prediction = self.fm(x).squeeze(-1)
+        prediction = self.fm(x).squeeze(-1) + self.global_bias
 
         return prediction
 
