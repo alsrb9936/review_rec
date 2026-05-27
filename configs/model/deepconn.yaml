@@ -24,3 +24,6 @@ w2v:
 model:
   freeze_word_embedding: false
   hidden_dim: 64
+  num_filters: 100
+  kernel_size: 3
+  dropout: 0.5

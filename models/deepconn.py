@@ -1,49 +1,25 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from .base_model import BaseModel, TextCNN, TorchFM
 
-
-class DeepCoNN(nn.Module):
+class DeepCoNN(BaseModel):
     def __init__(self, cfg):
-        super().__init__()
+        super().__init__(cfg)
 
-        embedding_matrix = np.load(cfg.data.word_embedding_path)
-        embedding_matrix = torch.tensor(embedding_matrix, dtype=torch.float)
+        self.user_text_cnn = TextCNN(cfg.model.hyper_params)
+        self.item_text_cnn = TextCNN(cfg.model.hyper_params)
 
-        self.word_embedding = nn.Embedding.from_pretrained(
-            embedding_matrix,
-            freeze=bool(cfg.model.freeze_word_embedding),
-            padding_idx=int(cfg.data.pad_id),
-        )
-
-        embedding_dim = embedding_matrix.shape[1]
-
-        # 임시 예시: 실제 DeepCoNN CNN encoder는 여기에 구현
-        self.user_proj = nn.Linear(embedding_dim, cfg.model.hidden_dim)
-        self.item_proj = nn.Linear(embedding_dim, cfg.model.hidden_dim)
-        self.predictor = nn.Sequential(
-            nn.Linear(cfg.model.hidden_dim * 2, cfg.model.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(cfg.model.hidden_dim, 1),
-        )
+        self.fm = TorchFM(n=cfg.data.num_users + cfg.data.num_items, k=cfg.model.hyper_params['latent_size'] * 2)
 
     def forward(self, user_reviews, item_reviews):
-        user_emb = self.word_embedding(user_reviews)
-        item_emb = self.word_embedding(item_reviews)
+        user_latent = self.user_text_cnn(user_reviews)
+        item_latent = self.item_text_cnn(item_reviews)
 
-        # user_emb: (B, review_count, review_length, embedding_dim)
-        # 여기서는 단순 평균. 나중에 CNN으로 교체하면 됨.
-        user_vec = user_emb.mean(dim=(1, 2))
-        item_vec = item_emb.mean(dim=(1, 2))
+        # Concatenate user and item latent vectors
+        x = torch.cat([user_latent, item_latent], dim=1)  # [B, latent_size * 2]
 
-        user_vec = self.user_proj(user_vec)
-        item_vec = self.item_proj(item_vec)
+        # Pass through FM layer
+        output = self.fm(x)  # [B, 1]
 
-        out = self.predictor(torch.cat([user_vec, item_vec], dim=-1))
-        return out
-    
-    def calculate_loss(self, user_reviews, item_reviews, rating):
-        predictions = self.forward(user_reviews, item_reviews)
-        loss_fn = nn.MSELoss()
-        loss = loss_fn(predictions.squeeze(), rating.float())
-        return loss
+        return output.squeeze()
