@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, open_dict
+from utils.preprocess import build_deepconn_resources
 from torch.utils.data import DataLoader
 
 from dataset import DATASET_DICT
@@ -195,9 +196,43 @@ def get_dataloader(train_df, valid_df, test_df, cfg: DictConfig):
         raise ValueError(f"Dataset class for model '{model_name}' is not registered in DATASET_DICT.")
 
     dataset_cls = DATASET_DICT[model_name]
-    train_dataset = dataset_cls(train_df, cfg, split="train")
-    valid_dataset = dataset_cls(valid_df, cfg, split="valid")
-    test_dataset = dataset_cls(test_df, cfg, split="test")
+
+    if model_name in ["DeepCoNN", "NARRE", "TransNet"]:
+        resources = build_deepconn_resources(train_df, valid_df, test_df, cfg)
+
+        with open_dict(cfg):
+            cfg.data.word_embedding_path = resources["word_embedding_path"]
+            cfg.stats.num_words = len(resources["word2idx"])
+
+        train_dataset = dataset_cls(
+            resources["train_df"],
+            cfg,
+            split="train",
+            user_review_bank=resources["user_reviews"],
+            item_review_bank=resources["item_reviews"],
+            pair_pos=resources["pair_pos"],
+        )
+
+        valid_dataset = dataset_cls(
+            resources["valid_df"],
+            cfg,
+            split="valid",
+            user_review_bank=resources["user_reviews"],
+            item_review_bank=resources["item_reviews"],
+        )
+
+        test_dataset = dataset_cls(
+            resources["test_df"],
+            cfg,
+            split="test",
+            user_review_bank=resources["user_reviews"],
+            item_review_bank=resources["item_reviews"],
+        )
+
+    else:
+        train_dataset = dataset_cls(train_df, cfg, split="train")
+        valid_dataset = dataset_cls(valid_df, cfg, split="valid")
+        test_dataset = dataset_cls(test_df, cfg, split="test")
 
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
     valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)

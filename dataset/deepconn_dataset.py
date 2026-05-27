@@ -1,40 +1,99 @@
 import torch
-from dataset.base_dataset import BaseDataset
-from omegaconf import DictConfig
 import pandas as pd
+from omegaconf import DictConfig
+
+from dataset.base_dataset import BaseDataset
 
 
 class DeepCoNNDataset(BaseDataset):
-    def __init__(self, df: pd.DataFrame, cfg: DictConfig, split: str = "train"):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        cfg: DictConfig,
+        split: str = "train",
+        user_review_bank: dict | None = None,
+        item_review_bank: dict | None = None,
+        pair_pos: dict | None = None,
+    ):
         super().__init__(df, cfg, split)
-        self.cfg = cfg
-        self.review_length = cfg.data.review_length
-        self.review_count = cfg.data.review_count
-        self.lowest_r_count = cfg.data.lowest_r_count
+
+        self.review_length = int(cfg.data.review_length)
+        self.review_count = int(cfg.data.review_count)
+        self.pad_id = int(cfg.data.pad_id)
+        self.retain_rui = bool(cfg.data.retain_rui)
+
+        self.user_review_bank = user_review_bank or {}
+        self.item_review_bank = item_review_bank or {}
+        self.pair_pos = pair_pos or {}
+
+        self._build_review_tensors()
 
     def __getitem__(self, idx):
         return {
             "user_id": self.user_ids[idx],
             "item_id": self.item_ids[idx],
-            "rating": self.ratings[idx],
+            "rating": self.ratings[idx].view(1),
             "user_reviews": self.user_reviews[idx],
             "item_reviews": self.item_reviews[idx],
         }
 
-    def _get_review(self):
-        self.user_ids = torch.tensor(self.df["user_id"].values, dtype=torch.long)
-        self.item_ids = torch.tensor(self.df["item_id"].values, dtype=torch.long)
-        self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float)
+    def _build_review_tensors(self):
+        user_review_tensors = []
+        item_review_tensors = []
 
-        # Assuming review_embeddings is a list of lists (or a 2D array) in the DataFrame
-        review_emb_list = self.df["review_embedding"].tolist()
-        self.review_embeddings = torch.tensor(review_emb_list, dtype=torch.float)
+        for row in self.df.itertuples(index=False):
+            user_id = int(row.user_id)
+            item_id = int(row.item_id)
 
-    def _load_word_dict(self):
-        # This method can be used to load a word dictionary if needed
-        pass
+            user_reviews = list(self.user_review_bank.get(user_id, []))
+            item_reviews = list(self.item_review_bank.get(item_id, []))
 
-    def _load_review_embeddings(self):
-        # This method can be used to load review embeddings if they are stored separately
-        pass
+            if self.split == "train" and not self.retain_rui:
+                user_reviews, item_reviews = self._remove_current_review(
+                    user_id,
+                    item_id,
+                    user_reviews,
+                    item_reviews,
+                )
 
+            user_review_tensors.append(self._adjust_review_list(user_reviews))
+            item_review_tensors.append(self._adjust_review_list(item_reviews))
+
+        self.user_reviews = torch.tensor(user_review_tensors, dtype=torch.long)
+        self.item_reviews = torch.tensor(item_review_tensors, dtype=torch.long)
+
+    def _remove_current_review(self, user_id, item_id, user_reviews, item_reviews):
+        pos = self.pair_pos.get((user_id, item_id))
+        if pos is None:
+            return user_reviews, item_reviews
+
+        user_pos, item_pos = pos
+
+        if 0 <= user_pos < len(user_reviews):
+            user_reviews = [
+                review for idx, review in enumerate(user_reviews)
+                if idx != user_pos
+            ]
+
+        if 0 <= item_pos < len(item_reviews):
+            item_reviews = [
+                review for idx, review in enumerate(item_reviews)
+                if idx != item_pos
+            ]
+
+        return user_reviews, item_reviews
+
+    def _adjust_review_list(self, reviews):
+        reviews = reviews[:self.review_count]
+
+        adjusted = []
+        for review in reviews:
+            review = list(review)
+            review = review[:self.review_length]
+            review = review + [self.pad_id] * (self.review_length - len(review))
+            adjusted.append(review)
+
+        while len(adjusted) < self.review_count:
+            adjusted.append([self.pad_id] * self.review_length)
+
+        return adjusted

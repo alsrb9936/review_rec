@@ -88,17 +88,26 @@ def normalize_review_embedding(value: Any) -> list[float]:
     raise TypeError(f"Unsupported review embedding type: {type(value)!r}")
 
 
-
-def tokenize_review(text: str) -> list[str]:
+def tokenize_review(text):
     if not isinstance(text, str):
         return []
-
-    text = re.sub(r"[^A-Za-z0-9가-힣]", " ", text)
-    text = re.sub(r"\s+", " ", text)
+    string = re.sub(r"[^A-Za-z]", " ", string)
+    string = re.sub(r"\'s", " \'s", string)
+    string = re.sub(r"\'ve", " \'ve", string)
+    string = re.sub(r"n\'t", " n\'t", string)
+    string = re.sub(r"\'re", " \'re", string)
+    string = re.sub(r"\'d", " \'d", string)
+    string = re.sub(r"\'ll", " \'ll", string)
+    string = re.sub(r",", " , ", string)
+    string = re.sub(r"!", " ! ", string)
+    string = re.sub(r"\(", " \( ", string)
+    string = re.sub(r"\)", " \) ", string)
+    string = re.sub(r"\?", " \? ", string)
+    string = re.sub(r"\s{2,}", " ", string)
     return text.strip().lower().split()
 
 
-def build_word2idx(tokenized_reviews, max_vocab: int = 50000, min_count: int = 1):
+def build_word2idx(tokenized_reviews, max_vocab=50000, min_count=1):
     counter = Counter()
     for tokens in tokenized_reviews:
         counter.update(tokens)
@@ -122,7 +131,7 @@ def encode_tokens(tokens, word2idx):
     return [word2idx.get(token, unk_id) for token in tokens]
 
 
-def build_user_item_review_bank(train_df: pd.DataFrame):
+def build_user_item_review_bank(train_df):
     user_reviews = defaultdict(list)
     item_reviews = defaultdict(list)
     pair_pos = {}
@@ -148,13 +157,12 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
     model = Word2Vec(
         sentences=train_tokens,
         vector_size=embedding_dim,
-        window=int(cfg.w2v.window),
-        min_count=int(cfg.w2v.min_count),
-        workers=int(cfg.w2v.workers),
-        sg=int(cfg.w2v.sg),
-        negative=int(cfg.w2v.negative),
-        epochs=int(cfg.w2v.epochs),
-        seed=int(cfg.seed),
+        window=1,
+        min_count=1,
+        workers=-1,
+        sg=1,
+        negative=64,
+        epochs=20,
     )
 
     embedding = np.random.normal(
@@ -163,7 +171,7 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
         size=(len(word2idx), embedding_dim),
     ).astype(np.float32)
 
-    embedding[0] = np.zeros(embedding_dim, dtype=np.float32)
+    embedding[int(cfg.data.pad_id)] = np.zeros(embedding_dim, dtype=np.float32)
 
     for word, idx in word2idx.items():
         if word in model.wv:
@@ -172,101 +180,54 @@ def train_gensim_word2vec(train_tokens, word2idx, cfg):
     return embedding
 
 
-def save_pickle(obj, path):
-    with open(path, "wb") as f:
-        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def load_pickle(path):
-    with open(path, "rb") as f:
-        return pickle.load(f)
-
-
 def build_deepconn_resources(train_df, valid_df, test_df, cfg):
-    """
-    DeepCoNN용 tokenization, word2idx, Word2Vec, user/item review bank를 생성한다.
-    train_df 기준으로만 vocab, Word2Vec, review bank를 만든다.
-    """
-    output_dir = os.path.abspath(cfg.experiment.save_dir)
-    resource_dir = os.path.join(output_dir, "deepconn_resources", cfg.data.dataset)
+    resource_dir = os.path.join(
+        cfg.experiment.save_dir,
+        "deepconn_resources",
+        cfg.data.dataset,
+    )
     os.makedirs(resource_dir, exist_ok=True)
 
-    word2idx_path = os.path.join(resource_dir, "word2idx.pkl")
-    user_reviews_path = os.path.join(resource_dir, "user_reviews.pkl")
-    item_reviews_path = os.path.join(resource_dir, "item_reviews.pkl")
-    pair_pos_path = os.path.join(resource_dir, "pair_pos.pkl")
     word_embedding_path = os.path.join(resource_dir, "word_embedding.npy")
 
-    # 이미 만들어져 있으면 재사용
-    if (
-        os.path.exists(word2idx_path)
-        and os.path.exists(user_reviews_path)
-        and os.path.exists(item_reviews_path)
-        and os.path.exists(pair_pos_path)
-        and os.path.exists(word_embedding_path)
-    ):
-        word2idx = load_pickle(word2idx_path)
-        user_reviews = load_pickle(user_reviews_path)
-        item_reviews = load_pickle(item_reviews_path)
-        pair_pos = load_pickle(pair_pos_path)
-        word_embedding = np.load(word_embedding_path)
-
-        return {
-            "word2idx": word2idx,
-            "user_reviews": user_reviews,
-            "item_reviews": item_reviews,
-            "pair_pos": pair_pos,
-            "word_embedding": word_embedding,
-            "word_embedding_path": word_embedding_path,
-        }
-
-    # review 컬럼명 확인
-    if "review" not in train_df.columns:
+    if "review_text" not in train_df.columns:
         raise ValueError(
-            "DeepCoNN requires a raw text column named 'review'. "
-            "현재 df에 review 컬럼이 없습니다."
+            "DeepCoNN requires review_text column. "
+            "Run with data.load_review_text=true and check .review file."
         )
 
-    # 1. tokenize
     train_df = train_df.copy()
     valid_df = valid_df.copy()
     test_df = test_df.copy()
 
-    train_df["tokens"] = train_df["review"].apply(tokenize_review)
-    valid_df["tokens"] = valid_df["review"].apply(tokenize_review)
-    test_df["tokens"] = test_df["review"].apply(tokenize_review)
+    train_df["tokens"] = train_df["review_text"].apply(tokenize_review)
+    valid_df["tokens"] = valid_df["review_text"].apply(tokenize_review)
+    test_df["tokens"] = test_df["review_text"].apply(tokenize_review)
 
-    # 2. vocab은 train 기준
     train_tokens = train_df["tokens"].tolist()
+
     word2idx = build_word2idx(
         train_tokens,
         max_vocab=int(cfg.w2v.max_vocab),
         min_count=int(cfg.w2v.min_count),
     )
 
-    # 3. review ids 변환
     train_df["review_ids"] = train_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
     valid_df["review_ids"] = valid_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
     test_df["review_ids"] = test_df["tokens"].apply(lambda x: encode_tokens(x, word2idx))
 
-    # 4. train 기준 user/item review bank 생성
     user_reviews, item_reviews, pair_pos = build_user_item_review_bank(train_df)
-
-    # 5. train 기준 Word2Vec 학습
     word_embedding = train_gensim_word2vec(train_tokens, word2idx, cfg)
 
-    # 6. 저장
-    save_pickle(word2idx, word2idx_path)
-    save_pickle(user_reviews, user_reviews_path)
-    save_pickle(item_reviews, item_reviews_path)
-    save_pickle(pair_pos, pair_pos_path)
     np.save(word_embedding_path, word_embedding)
 
     return {
+        "train_df": train_df,
+        "valid_df": valid_df,
+        "test_df": test_df,
         "word2idx": word2idx,
         "user_reviews": user_reviews,
         "item_reviews": item_reviews,
         "pair_pos": pair_pos,
-        "word_embedding": word_embedding,
         "word_embedding_path": word_embedding_path,
     }

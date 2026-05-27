@@ -1,19 +1,16 @@
 data:
   review_length: 100
-  review_count : 10
-  lowest_r_count : 1
-  retain_rui : False
-  pad_id : 0
-  unk_id : 1
+  review_count: 10
+  lowest_r_count: 1
+  retain_rui: false
+  pad_id: 0
+  unk_id: 1
+  load_review_text: true
 
 w2v:
   embedding_dim: 64
-  window: 1
-  min_count: 1
-  workers: 4
-  sg: 1
-  negative: 64
   max_vocab: 50000
 
 model:
   freeze_word_embedding: false
+  hidden_dim: 64
