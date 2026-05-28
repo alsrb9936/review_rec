@@ -3,13 +3,27 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
-
+from typing import Optional
 class ReviewEncoder(torch.nn.Module):
-    def __init__(self, cfg: DictConfig, preference_id_count: int, quality_id_count: int):
+    def __init__(
+        self,
+        cfg: DictConfig,
+        preference_id_count: int,
+        quality_id_count: int,
+        quality_padding_idx: Optional[int] = None,
+    ):
         super().__init__()
-        self.preference_id_embedding = torch.nn.Embedding(preference_id_count, cfg.model.hidden_dim)
-        self.quality_id_embedding = torch.nn.Embedding(quality_id_count, cfg.model.hidden_dim)
 
+        self.preference_id_embedding = torch.nn.Embedding(
+            preference_id_count,
+            cfg.model.hidden_dim,
+        )
+
+        self.quality_id_embedding = torch.nn.Embedding(
+            quality_id_count,
+            cfg.model.hidden_dim,
+            padding_idx=quality_padding_idx,
+        )
         self.num_filters = cfg.model.num_filters
         self.review_count = cfg.data.review_count
         self.review_length = cfg.data.review_length
@@ -39,17 +53,9 @@ class ReviewEncoder(torch.nn.Module):
         self.lossfn = torch.nn.MSELoss()
 
     def forward(self, review_emb, preference_id, quality_id):
-        """
-        Input Size:
-            (Batch Size, Review Count, Review Length, Word Dim)
-            (Batch Size, Review Count)
-            (Batch Size, Review Count)
+        preference_id = preference_id.view(-1)
 
-        Output Size:
-            (Batch Size, Id Dim)
-        """
-
-        preference_id_emb = self.preference_id_embedding(preference_id).view(-1, self.hidden_dim)
+        preference_id_emb = self.preference_id_embedding(preference_id)
         quality_id_emb = self.quality_id_embedding(quality_id)
 
         batch_size = review_emb.shape[0]
@@ -78,57 +84,98 @@ class LatentFactor(torch.nn.Module):
         self.b_item = torch.nn.Parameter(torch.randn([cfg.stats.num_items]), requires_grad=True)
 
     def forward(self, user_feature, user_id, item_feature, item_id):
-        """
-        Input Size:
-            (Batch Size, Id Dim)
-            (Batch Size, 1)
-            (Batch Size, Id Dim)
-            (Batch Size, 1)
+        user_id = user_id.view(-1)
+        item_id = item_id.view(-1)
 
-        Output Size:
-            (Batch Size, 1)
-        """
         dot = user_feature * item_feature
-        predict = self.linear(dot) + self.b_user[user_id] + self.b_item[item_id]
+
+        predict = (
+            self.linear(dot)
+            + self.b_user[user_id].view(-1, 1)
+            + self.b_item[item_id].view(-1, 1)
+        )
+
         return predict
     
 class NARRE(nn.Module):
     def __init__(self, cfg, word_emb):
         super().__init__()
-        self.word_embedding = torch.nn.Embedding.from_pretrained(word_emb)
+        self.word_embedding = torch.nn.Embedding.from_pretrained(
+                                    word_emb,
+                                    freeze=True,
+                                    padding_idx=int(cfg.data.pad_id),
+                                )
         self.word_embedding.weight.requires_grad = False
         self.num_users = cfg.stats.num_users
         self.num_items = cfg.stats.num_items
     
-        self.user_review_layer = ReviewEncoder(cfg, self.num_users, self.num_items)
-        self.item_review_layer = ReviewEncoder(cfg, self.num_items, self.num_users)
+        self.pad_user_id = self.num_users
+        self.pad_item_id = self.num_items
+
+        self.user_review_layer = ReviewEncoder(
+            cfg,
+            preference_id_count=self.num_users,
+            quality_id_count=self.num_items + 1,
+            quality_padding_idx=self.pad_item_id,
+        )
+
+        self.item_review_layer = ReviewEncoder(
+            cfg,
+            preference_id_count=self.num_items,
+            quality_id_count=self.num_users + 1,
+            quality_padding_idx=self.pad_user_id,
+        )
 
         self.predict_linear = LatentFactor(cfg)
+        self.lossfn = torch.nn.MSELoss()
 
-
-    def forward(self, user_id, item_id, user_review,item_review, user_id_per_review, item_id_per_review):
-        """
-        Input Size:
-            (Batch Size, Review Count, Review Length, Word Dim)
-            (Batch Size, 1)
-            (Batch Size, Review Count)
-            (Batch Size, Review Count, Review Length, Word Dim)
-            (Batch Size, 1)
-            (Batch Size, Review Count)
-
-        Output Size:
-            (Batch Size, 1)
-        """
+    def forward(
+            self,
+            user_id,
+            item_id,
+            user_review,
+            item_review,
+            user_review_item_ids,
+            item_review_user_ids,
+        ):
+        user_id = user_id.view(-1)
+        item_id = item_id.view(-1)
 
         user_review_emb = self.word_embedding(user_review)
-        user_feature = self.user_review_layer(user_review_emb, user_id, item_id_per_review)
+        user_feature = self.user_review_layer(
+                user_review_emb,
+                user_id,
+                user_review_item_ids,  # item id들, max <= num_items
+            )
 
         item_review_emb = self.word_embedding(item_review)
-        item_feature = self.item_review_layer(item_review_emb, item_id, user_id_per_review)
+        item_feature = self.item_review_layer(
+            item_review_emb,
+            item_id,
+            item_review_user_ids,  # user id들, max <= num_users
+        )
 
-        predict = self.predict_linear(user_feature, user_id, item_feature, item_id)
+
+        predict =self.predict_linear(user_feature, user_id, item_feature, item_id)
+
         return predict
     
-    def calculate_loss(self, user_id, item_id, user_review,item_review, user_id_per_review, item_id_per_review, rating):
-        prediction = self.forward(user_id, item_id, user_review,item_review, user_id_per_review, item_id_per_review)
+    def calculate_loss(
+        self,
+        user_id,
+        item_id,
+        user_review,
+        item_review,
+        user_review_item_ids,
+        item_review_user_ids,
+        rating,
+    ):
+        prediction = self.forward(
+            user_id,
+            item_id,
+            user_review,
+            item_review,
+            user_review_item_ids,
+            item_review_user_ids,
+        )
         return self.lossfn(prediction, rating.view(-1, 1).float())

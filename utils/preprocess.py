@@ -131,9 +131,6 @@ def glove_load_embedding(cfg):
     return word_emb, word_dict
 
 def google_load_embedding(cfg):
-    """
-    Load GoogleNews word2vec bin file and add <pad> vector.
-    """
     word2vec_file = cfg.data.word_embedding_file
     pad_word = "<pad>"
     word_dim = int(cfg.data.word_dim)
@@ -148,6 +145,9 @@ def google_load_embedding(cfg):
             pad_word,
             np.zeros(word_dim, dtype=np.float32),
         )
+    else:
+        pad_id = word_vec.key_to_index[pad_word]
+        word_vec.vectors[pad_id] = np.zeros(word_dim, dtype=np.float32)
 
     pad_id = word_vec.key_to_index[pad_word]
 
@@ -155,5 +155,6 @@ def google_load_embedding(cfg):
     cfg.data.vocab_size = len(word_vec.key_to_index)
 
     word_dict = word_vec.key_to_index
+    word_emb = torch.tensor(word_vec.vectors, dtype=torch.float32)
 
-    return word_vec, word_dict
+    return word_emb, word_dict

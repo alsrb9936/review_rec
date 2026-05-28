@@ -1,32 +1,32 @@
 # @package _global_
 
-model_name: deepconn
+model_name: narre
 
 data:
-  review_length: 40
-  review_count: 10
+  review_length: 200
+  review_count: 25
   lowest_review_count: 2
   retain_rui: false
   pad_id: 0
-  unk_id: 1
   load_review_text: true
-  word_embedding_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/glove.6B.50d.txt
+  word_embedding_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/GoogleNews-vectors-negative300.bin
+  word_embedding_type: "google"
   stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
   punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
-  word_dim: 50
-
+  word_dim: 300
+  vocab_size : 0
 model:
   freeze_word_embedding: false
   hidden_dim: 32
   num_filters: 100
   kernel_size: 3
-  dropout: 0.3
+  dropout: 0.5
 
 training:
-  batch: 128
+  batch: 16
   eval_batch: 256
   epoch: 600
-  lr: 0.002
-  weight_decay: 1e-6
+  lr: 0.001
+  weight_decay: 2e-3
   lr_decay: 0.99  
   optimizer: Adam

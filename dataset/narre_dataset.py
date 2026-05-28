@@ -24,6 +24,8 @@ class NARREDataset(Dataset):
         self.review_count = int(cfg.data.review_count)
         self.pad_id = int(cfg.data.pad_id)
 
+        self.pad_user_id = int(cfg.stats.num_users)
+        self.pad_item_id = int(cfg.stats.num_items)
         self.lowest_r_count = int(cfg.data.lowest_review_count)
 
         # valid/test에서는 현재 예측 대상 user-item pair의 review 제거 권장
@@ -82,6 +84,13 @@ class NARREDataset(Dataset):
     def _get_reviews_and_ids(self, df, lead, costar):
         reviews_by_lead = dict(list(df[[costar, "review_text"]].groupby(df[lead])))
 
+        if costar == "item_id":
+            pad_costar_id = self.pad_item_id
+        elif costar == "user_id":
+            pad_costar_id = self.pad_user_id
+        else:
+            raise ValueError(f"Unknown costar column: {costar}")
+
         all_reviews = []
         all_costar_ids = []
 
@@ -102,6 +111,7 @@ class NARREDataset(Dataset):
             reviews, costar_ids = self._adjust_review_list_and_ids(
                 reviews,
                 costar_ids,
+                pad_costar_id,
             )
 
             all_reviews.append(reviews)
@@ -109,7 +119,7 @@ class NARREDataset(Dataset):
 
         return torch.LongTensor(all_reviews), torch.LongTensor(all_costar_ids)
 
-    def _adjust_review_list_and_ids(self, reviews, costar_ids):
+    def _adjust_review_list_and_ids(self, reviews, costar_ids, pad_costar_id):
         reviews = reviews[:self.review_count]
         costar_ids = costar_ids[:self.review_count]
 
@@ -117,7 +127,7 @@ class NARREDataset(Dataset):
 
         while len(reviews) < self.review_count:
             reviews.append(pad_review)
-            costar_ids.append(0)
+            costar_ids.append(pad_costar_id)
 
         fixed_reviews = []
         for review in reviews:
@@ -133,6 +143,6 @@ class NARREDataset(Dataset):
 
         wids = []
         for word in review.split():
-            wids.append(self.word_dict.get(word, self.unk_id))
+            wids.append(self.word_dict.get(word, self.pad_id))
 
         return wids

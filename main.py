@@ -49,12 +49,9 @@ def main(cfg: DictConfig) -> None:
     if not _maybe_report_training_state(cfg):
         return
 
-    if model_name == "deepconn":
+    if model_name in REVIEW_TEXT_MODEL_NAMES:
         train_loader, valid_loader, test_loader, word_emb, _ = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg,word_emb).to(device)
-    else: 
-        train_loader, valid_loader, test_loader = get_dataloader(cfg)
-        model = MODEL_DICT[model_name](cfg).to(device)
 
     print(
         f"Loaded interactions "

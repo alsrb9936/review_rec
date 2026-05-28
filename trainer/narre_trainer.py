@@ -14,11 +14,12 @@ class NARRETrainer(BaseTrainer):
         rating = batch["rating"]
 
         user_review = batch["user_reviews"]
-        user_id_per_review = batch["user_review_item_ids"]
         item_review = batch["item_reviews"]
-        item_id_per_review = batch["item_review_user_ids"]
 
-        loss = self.model.calculate_loss(user_id, item_id, user_review, item_review, user_id_per_review, item_id_per_review, rating)
+        user_review_item_ids = batch["user_review_item_ids"]
+        item_review_user_ids = batch["item_review_user_ids"]
+
+        loss = self.model.calculate_loss(user_id, item_id, user_review, item_review, user_review_item_ids, item_review_user_ids, rating)
         loss.backward()
         self.optimizer.step()
 
@@ -39,10 +40,10 @@ class NARRETrainer(BaseTrainer):
 
                 user_reviews = batch["user_reviews"]
                 item_reviews = batch["item_reviews"]
-                user_id_per_review = batch["user_review_item_ids"]
-                item_id_per_review = batch["item_review_user_ids"]
+                user_review_item_ids = batch["user_review_item_ids"]
+                item_review_user_ids = batch["item_review_user_ids"]
 
-                pred = self.model(user_id, item_id, user_reviews, item_reviews, user_id_per_review, item_id_per_review)
+                pred = self.model(user_id, item_id, user_reviews, item_reviews, user_review_item_ids, item_review_user_ids)
                 rating = rating.view(-1)
                 all_preds.append(pred.cpu())
                 all_targets.append(rating.cpu())
