@@ -10,55 +10,60 @@ class NeuMF(BaseModel):
 
         num_users = cfg.stats.num_users
         num_items = cfg.stats.num_items
-        embedding_dim = cfg.hidden_dim
+        mf_embedding_size = cfg.mf_embedding_size
+        mlp_embedding_size = cfg.mlp_embedding_size
+        mlp_hidden_size = list(cfg.mlp_hidden_size)
 
-        self.user_embedding_mf = nn.Embedding(num_users, embedding_dim)
-        self.item_embedding_mf = nn.Embedding(num_items, embedding_dim)
-        self.user_embedding_mlp = nn.Embedding(num_users, embedding_dim)
-        self.item_embedding_mlp = nn.Embedding(num_items, embedding_dim)
+        self.user_mf_embedding = nn.Embedding(num_users, mf_embedding_size)
+        self.item_mf_embedding = nn.Embedding(num_items, mf_embedding_size)
+        self.user_mlp_embedding = nn.Embedding(num_users, mlp_embedding_size)
+        self.item_mlp_embedding = nn.Embedding(num_items, mlp_embedding_size)
 
-        mlp_input_dim = embedding_dim * 2
+        self.embedding_dropout = nn.Dropout(p=cfg.dropout)
+
         mlp_layers = []
-        current_dim = mlp_input_dim
-        for _ in range(cfg.num_layers - 1):
-            next_dim = current_dim // 2
-            mlp_layers.extend([
-                nn.Linear(current_dim, next_dim),
-                nn.ReLU(),
-                nn.Dropout(cfg.dropout),
-            ])
-            current_dim = next_dim
+        input_dim = mlp_embedding_size * 2
+        for hidden_dim in mlp_hidden_size:
+            mlp_layers.append(nn.Linear(input_dim, hidden_dim))
+            mlp_layers.append(nn.ReLU())
+            mlp_layers.append(nn.Dropout(p=cfg.dropout))
+            input_dim = hidden_dim
+        self.mlp_layers = nn.Sequential(*mlp_layers)
 
-        self.mlp = nn.Sequential(*mlp_layers)
-
-        predict_input_dim = embedding_dim + current_dim
-        self.predict = nn.Linear(predict_input_dim, 1)
+        mlp_output_dim = input_dim
+        self.predict_layer = nn.Linear(mf_embedding_size + mlp_output_dim, 1)
 
         self.loss_fn = nn.MSELoss()
         self._init_weights()
 
     def _init_weights(self):
-        for module in self.modules():
-            if isinstance(module, nn.Embedding):
-                nn.init.normal_(module.weight, mean=0.0, std=0.01)
-            elif isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
+        nn.init.xavier_normal_(self.user_mf_embedding.weight)
+        nn.init.xavier_normal_(self.item_mf_embedding.weight)
+        nn.init.xavier_normal_(self.user_mlp_embedding.weight)
+        nn.init.xavier_normal_(self.item_mlp_embedding.weight)
+
+        for module in self.mlp_layers:
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_normal_(module.weight)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+        nn.init.xavier_normal_(self.predict_layer.weight)
+        if self.predict_layer.bias is not None:
+            nn.init.zeros_(self.predict_layer.bias)
 
     def forward(self, user_id, item_id):
-        user_emb_mf = self.user_embedding_mf(user_id)
-        item_emb_mf = self.item_embedding_mf(item_id)
-        mf_vector = user_emb_mf * item_emb_mf
+        user_mf_e = self.embedding_dropout(self.user_mf_embedding(user_id))
+        item_mf_e = self.embedding_dropout(self.item_mf_embedding(item_id))
+        mf_output = user_mf_e * item_mf_e
 
-        user_emb_mlp = self.user_embedding_mlp(user_id)
-        item_emb_mlp = self.item_embedding_mlp(item_id)
-        mlp_vector = torch.cat([user_emb_mlp, item_emb_mlp], dim=-1)
-        mlp_vector = self.mlp(mlp_vector)
+        user_mlp_e = self.embedding_dropout(self.user_mlp_embedding(user_id))
+        item_mlp_e = self.embedding_dropout(self.item_mlp_embedding(item_id))
+        mlp_input = torch.cat([user_mlp_e, item_mlp_e], dim=-1)
+        mlp_output = self.mlp_layers(mlp_input)
 
-        predict_vector = torch.cat([mf_vector, mlp_vector], dim=-1)
-        prediction = self.predict(predict_vector).squeeze(-1)
-        return prediction
+        final_input = torch.cat([mf_output, mlp_output], dim=-1)
+        rating_pred = self.predict_layer(final_input).squeeze(-1)
+        return rating_pred
 
     def calculate_loss(self, user_id, item_id, rating):
         prediction = self.forward(user_id, item_id)

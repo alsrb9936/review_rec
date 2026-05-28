@@ -26,8 +26,9 @@ data:
   root: /home/infolab/mnt/mingyu/review_rec/dataset
   cache_dir: /home/infolab/mnt/mingyu/review_rec/review4rec/cached
   dataset: Amazon_All_Beauty_18
-  # interaction_file: null
-  # review_file: null
+  word_embedding_file: null
+  stopword_file: null
+  punctuation_file: null
   separator: "\t"
   columns:
     user_id: user_id

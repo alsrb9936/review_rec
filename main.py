@@ -10,7 +10,7 @@ from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
 from utils.util import load_interaction_data, set_seed, get_dataloader
 
-
+REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
 def _maybe_report_training_state(cfg: DictConfig) -> bool:
     model_name = str(cfg.model_name)
     missing: list[str] = []
@@ -45,10 +45,16 @@ def main(cfg: DictConfig) -> None:
     device = torch.device(device_str)
     print(f"Device: {device}")
     model_name = str(cfg.model_name)
+    model_name = cfg.model_name.lower()
     if not _maybe_report_training_state(cfg):
         return
 
-    train_loader, valid_loader, test_loader = get_dataloader(cfg)
+    if model_name == "deepconn":
+        train_loader, valid_loader, test_loader, word_emb, _ = get_dataloader(cfg)
+        model = MODEL_DICT[model_name](cfg,word_emb).to(device)
+    else: 
+        train_loader, valid_loader, test_loader = get_dataloader(cfg)
+        model = MODEL_DICT[model_name](cfg).to(device)
 
     print(
         f"Loaded interactions "
@@ -58,7 +64,7 @@ def main(cfg: DictConfig) -> None:
 
     print(f"Created dataloaders for model='{cfg.model_name}'")
 
-    model = MODEL_DICT[model_name](cfg).to(device)
+    
     trainer = MODEL_TRAINER_DICT[model_name](model, cfg, device)
     trainer.train(train_loader, valid_loader, test_loader)
 

@@ -36,9 +36,9 @@ class BaseTrainer(abc.ABC):
                 weight_decay=cfg.training.weight_decay,
             )
 
-        # self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
-        #     self.optimizer, gamma=cfg.training.lr_decay
-        # )
+        self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            self.optimizer, gamma=cfg.training.lr_decay
+        )
 
         self.best_metric_value = float("inf")
         self.patience_counter = 0
@@ -77,7 +77,7 @@ class BaseTrainer(abc.ABC):
                 pbar.set_postfix(loss=f"{loss.item():.4f}")
 
             avg_loss = total_loss / max(num_batches, 1)
-            # self.lr_scheduler.step()
+            self.lr_scheduler.step()
         
 
             if self.current_epoch % self.cfg.evaluation.eval_step == 0:

@@ -8,11 +8,10 @@ import pandas as pd
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, open_dict
-from utils.preprocess import build_review_text_resources
+from utils.preprocess import glove_load_embedding, google_load_embedding, clean_review
 from torch.utils.data import DataLoader
-
 from dataset import DATASET_DICT
-
+from sklearn.model_selection import train_test_split
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
 
 
@@ -23,7 +22,6 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 def _rename_columns(frame: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
     frame = frame.copy()
@@ -123,106 +121,72 @@ def load_interaction_data(cfg: DictConfig) -> pd.DataFrame:
 
 
 def split_by_ratio(df, train_ratio=0.8, valid_ratio=0.1, random_state=42):
-    if not 0 < train_ratio < 1:
-        raise ValueError("train_ratio must be between 0 and 1.")
-    if not 0 <= valid_ratio < 1:
-        raise ValueError("valid_ratio must be between 0 and 1.")
-    if train_ratio + valid_ratio >= 1:
-        raise ValueError("train_ratio + valid_ratio must be less than 1.")
+    test_ratio = 1.0 - train_ratio - valid_ratio
 
-    if df.empty:
-        empty = df.iloc[0:0].copy()
-        return empty, empty.copy(), empty.copy()
+    if test_ratio <= 0:
+        raise ValueError("train_ratio + valid_ratio must be smaller than 1.0")
 
-    shuffled = cast(pd.DataFrame, df.sample(frac=1.0, random_state=random_state).reset_index(drop=True))
-    total_count = len(shuffled)
+    # 1차 split: train / temp(valid + test)
+    train_df, temp_df = train_test_split(
+        df,
+        train_size=train_ratio,
+        random_state=random_state,
+        shuffle=True
+    )
 
-    if total_count == 1:
-        return shuffled.copy(), shuffled.iloc[0:0].copy(), shuffled.iloc[0:0].copy()
+    # temp 안에서 valid 비율 계산
+    valid_ratio_in_temp = valid_ratio / (valid_ratio + test_ratio)
 
-    if total_count == 2:
-        return shuffled.iloc[:1].reset_index(drop=True), shuffled.iloc[1:].reset_index(drop=True), shuffled.iloc[0:0].copy()
+    # 2차 split: valid / test
+    valid_df, test_df = train_test_split(
+        temp_df,
+        train_size=valid_ratio_in_temp,
+        random_state=random_state,
+        shuffle=True
+    )
 
-    train_count = max(1, int(round(total_count * train_ratio)))
-    valid_count = max(1, int(round(total_count * valid_ratio)))
-
-    if train_count + valid_count >= total_count:
-        overflow = train_count + valid_count - (total_count - 1)
-        if valid_count > 1:
-            reduction = min(overflow, valid_count - 1)
-            valid_count -= reduction
-            overflow -= reduction
-        if overflow > 0 and train_count > 1:
-            train_count -= min(overflow, train_count - 1)
-
-    test_count = total_count - train_count - valid_count
-    if test_count <= 0:
-        test_count = 1
-        if valid_count > 1:
-            valid_count -= 1
-        else:
-            train_count -= 1
-
-    train_end = train_count
-    valid_end = train_end + valid_count
-
-    train_df = shuffled.iloc[:train_end].reset_index(drop=True)
-    valid_df = shuffled.iloc[train_end:valid_end].reset_index(drop=True)
-    test_df = shuffled.iloc[valid_end:].reset_index(drop=True)
-
-    return train_df, valid_df, test_df
+    return (
+        train_df.reset_index(drop=True),
+        valid_df.reset_index(drop=True),
+        test_df.reset_index(drop=True)
+    )
 
 
 def get_dataloader(cfg: DictConfig):
-    interactions = load_interaction_data(cfg)
-    train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
     model_name = cfg.model_name.lower()
-
-    if model_name not in DATASET_DICT:
-        raise ValueError(f"Dataset class for model '{model_name}' is not registered in DATASET_DICT.")
-
+    interactions = load_interaction_data(cfg)
     dataset_cls = DATASET_DICT[model_name]
 
     if model_name in REVIEW_TEXT_MODEL_NAMES:
-        resources = build_review_text_resources(train_df, valid_df, test_df, cfg)
+        interactions = interactions.drop(interactions[[not isinstance(x, str) or len(x) == 0 for x in interactions['review_text']]].index)  # erase null review_texts
+        interactions['review_text'] = clean_review(cfg, interactions['review_text'])
+        train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
 
-        with open_dict(cfg):
-            cfg.data.word_embedding_path = resources["word_embedding_path"]
-            cfg.stats.num_words = len(resources["word2idx"])
+        if cfg.data.word_embedding_type == "glove":
+            word_emb, word_dict = glove_load_embedding(cfg)
+        elif cfg.data.word_embedding_type == "google":
+            word_emb, word_dict = google_load_embedding(cfg)
 
-        train_dataset = dataset_cls(
-            resources["train_df"],
-            cfg,
-            split="train",
-            user_review_bank=resources["user_reviews"],
-            item_review_bank=resources["item_reviews"],
-        )
+        train_dataset = dataset_cls(train_df, cfg, word_dict, split="train")
+        valid_dataset = dataset_cls(valid_df, cfg, word_dict, split="valid")
+        test_dataset = dataset_cls(test_df, cfg, word_dict, split="test")
 
-        valid_dataset = dataset_cls(
-            resources["valid_df"],
-            cfg,
-            split="valid",
-            user_review_bank=resources["user_reviews"],
-            item_review_bank=resources["item_reviews"],
-        )
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
+        valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
 
-        test_dataset = dataset_cls(
-            resources["test_df"],
-            cfg,
-            split="test",
-            user_review_bank=resources["user_reviews"],
-            item_review_bank=resources["item_reviews"],
-        )
-
+        return train_dataloader, valid_dataloader, test_dataloader, word_emb, word_dict
+    
     else:
+        train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
+        
         train_dataset = dataset_cls(train_df, cfg, split="train")
         valid_dataset = dataset_cls(valid_df, cfg, split="valid")
         test_dataset = dataset_cls(test_df, cfg, split="test")
 
-    
-    train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
+        valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
 
-    del train_df, valid_df, test_df, train_dataset, valid_dataset, test_dataset
+
     return train_dataloader, valid_dataloader, test_dataloader

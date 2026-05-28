@@ -13,7 +13,6 @@ class DeepCoNNTrainer(BaseTrainer):
         user_reviews = batch["user_reviews"]
         item_reviews = batch["item_reviews"]
 
-
         loss = self.model.calculate_loss(user_reviews, item_reviews, rating)
         loss.backward()
         self.optimizer.step()
@@ -34,7 +33,7 @@ class DeepCoNNTrainer(BaseTrainer):
                 item_reviews = batch["item_reviews"]
 
                 pred = self.model(user_reviews, item_reviews)
-
+                rating = rating.view(-1)
                 all_preds.append(pred.cpu())
                 all_targets.append(rating.cpu())
 

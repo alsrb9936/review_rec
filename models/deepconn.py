@@ -1,59 +1,86 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from .base_model import BaseModel, TextCNN, TorchFM
+from omegaconf import DictConfig
 
-class DeepCoNN(BaseModel):
-    def __init__(self, cfg):
-        super().__init__(cfg)
+class CNN(nn.Module):
 
-        embedding_matrix = np.load(cfg.data.word_embedding_path)
-        embedding_matrix = torch.tensor(embedding_matrix, dtype=torch.float)
+    def __init__(self, cfg, word_dim):
+        super(CNN, self).__init__()
 
-        self.word_embedding = nn.Embedding.from_pretrained(
-            embedding_matrix,
-            freeze=bool(cfg.model.freeze_word_embedding),
-            padding_idx=int(cfg.data.pad_id),
-        )
-        
-        word_embed_size = embedding_matrix.shape[1]
-        hidden_dim = int(cfg.model.hidden_dim)
-        num_filters = int(cfg.model.num_filters)
-        kernel_size = int(cfg.model.kernel_size)
-        dropout = float(cfg.model.dropout)
+        self.num_filters = cfg.model.num_filters
+        self.review_count = cfg.data.review_count
+        self.review_length = cfg.data.review_length
 
-        hyper_params = {
-            "word_embed_size": word_embed_size,
-            "latent_size": hidden_dim,
-            "num_filters": num_filters,
-            "kernel_size": kernel_size,
-            "dropout": dropout,
-        }
+        self.hidden_dim = cfg.model.hidden_dim
+        self.kernel_size = cfg.model.kernel_size
+        self.dropout = cfg.model.dropout
 
-        self.user_cnn = TextCNN(hyper_params)
-        self.item_cnn = TextCNN(hyper_params)
-        self.global_bias = nn.Parameter(torch.zeros(1), requires_grad=True)
-        self.fm = TorchFM(n=hidden_dim * 2, k=int(cfg.model.fm_k))
-        self.loss_fn = nn.MSELoss()
+        self.conv = nn.Sequential(
+            nn.Conv1d(
+                in_channels=word_dim,
+                out_channels=self.num_filters,
+                kernel_size=self.kernel_size,
+                padding=(self.kernel_size - 1) // 2),  # out shape(new_batch_size, model.num_filters, review_length)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=(1, self.review_length)),  # out shape(new_batch_size,model.num_filters,1)
+            nn.Dropout(p=self.dropout))
+
+        self.linear = nn.Sequential(
+            nn.Linear(self.num_filters * self.review_count, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=self.dropout))
+
+    def forward(self, vec):  # input shape(new_batch_size, review_length, word2vec_dim)
+        latent = self.conv(vec.permute(0, 2, 1))  # out(new_batch_size, model.num_filters, 1) kernel count指一条评论潜在向量
+        latent = self.linear(latent.reshape(-1, self.num_filters * self.review_count))
+        return latent  # out shape(batch_size, hidden_dim)
 
 
-    def forward(self, user_reviews, item_reviews):
-        user_emb = self.word_embedding(user_reviews)
-        item_emb = self.word_embedding(item_reviews)
+class FactorizationMachine(nn.Module):
 
-        batch_size = user_emb.size(0)
+    def __init__(self, p, k):  # p=hidden_dim
+        super().__init__()
+        self.v = nn.Parameter(torch.rand(p, k) / 10)
+        self.linear = nn.Linear(p, 1, bias=True)
+        self.dropout = nn.Dropout(0.5)
 
-        user_emb = user_emb.view(batch_size, -1, user_emb.size(-1))
-        item_emb = item_emb.view(batch_size, -1, item_emb.size(-1))
+    def forward(self, x):
+        linear_part = self.linear(x)  # input shape(batch_size, hidden_dim), out shape(batch_size, 1)
+        inter_part1 = torch.mm(x, self.v) ** 2
+        inter_part2 = torch.mm(x ** 2, self.v ** 2)
+        pair_interactions = torch.sum(inter_part1 - inter_part2, dim=1, keepdim=True)
+        pair_interactions = self.dropout(pair_interactions)
+        output = linear_part + 0.5 * pair_interactions
+        return output  # out shape(batch_size, 1)
 
-        user_vec = self.user_cnn(user_emb)
-        item_vec = self.item_cnn(item_emb)
 
-        x = torch.cat([user_vec, item_vec], dim=-1)
-        prediction = self.fm(x).squeeze(-1) + self.global_bias
 
+class DeepCoNN(nn.Module):
+    def __init__(self, cfg, word_emb):
+        super().__init__()
+
+        self.embedding = nn.Embedding.from_pretrained(torch.Tensor(word_emb))
+        self.cnn_u = CNN(cfg, word_dim=self.embedding.embedding_dim)
+        self.cnn_i = CNN(cfg, word_dim=self.embedding.embedding_dim)
+        self.fm = FactorizationMachine(cfg.model.hidden_dim * 2, 10)
+        self.lossfn = nn.MSELoss(reduction='sum')
+
+    def forward(self, user_review, item_review):  # input shape(batch_size, review_count, review_length)
+        new_batch_size = user_review.shape[0] * user_review.shape[1]
+        user_review = user_review.reshape(new_batch_size, -1)
+        item_review = item_review.reshape(new_batch_size, -1)
+
+        u_vec = self.embedding(user_review)
+        i_vec = self.embedding(item_review)
+
+        user_latent = self.cnn_u(u_vec)
+        item_latent = self.cnn_i(i_vec)
+
+        concat_latent = torch.cat((user_latent, item_latent), dim=1)
+        prediction = self.fm(concat_latent)
         return prediction
 
     def calculate_loss(self, user_reviews, item_reviews, rating):
         prediction = self.forward(user_reviews, item_reviews)
-        return self.loss_fn(prediction, rating.view(-1).float())
+        return self.lossfn(prediction, rating.view(-1, 1).float())

@@ -39,13 +39,3 @@ class BaseDataset(Dataset, abc.ABC):
     @abc.abstractmethod
     def __getitem__(self, idx):
         ...
-
-    def _get_base_item(self, idx):
-        item = {
-            "user_id": self.user_ids[idx],
-            "item_id": self.item_ids[idx],
-            "rating": self.ratings[idx],
-        }
-        if self.has_review_embedding:
-            item["review_embedding"] = self.review_embeddings[idx]
-        return item
