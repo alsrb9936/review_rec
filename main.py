@@ -1,8 +1,10 @@
+import os
 from collections.abc import Sized
+from datetime import datetime
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from torch.utils.data import DataLoader
 
 from dataset import DATASET_DICT
@@ -39,6 +41,14 @@ def _dataset_size(loader: DataLoader[object]) -> int:
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
+
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir_name = f"{cfg.model_name}_{cfg.data.dataset}_{cfg.experiment.seed}_{current_time}"
+    with open_dict(cfg):
+        cfg.experiment.save_dir = os.path.join(cfg.experiment.save_dir, run_dir_name)
+    os.makedirs(cfg.experiment.save_dir, exist_ok=True)
+    print(f"Save directory: {cfg.experiment.save_dir}")
+
     set_seed(cfg.experiment.seed)
 
     device_str = f"cuda:{cfg.experiment.device}" if torch.cuda.is_available() else "cpu"
@@ -53,6 +63,9 @@ def main(cfg: DictConfig) -> None:
         train_loader, valid_loader, test_loader, word_emb, _ = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg,word_emb).to(device)
 
+    else:
+        train_loader, valid_loader, test_loader = get_dataloader(cfg)
+        model = MODEL_DICT[model_name](cfg).to(device)
     print(
         f"Loaded interactions "
         f"(train={_dataset_size(train_loader)}, valid={_dataset_size(valid_loader)}, test={_dataset_size(test_loader)}) "

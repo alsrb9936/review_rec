@@ -2,10 +2,11 @@
 # NeuMF model config - overrides default config values
 
 model_name: neumf
-mf_embedding_size: 64
-mlp_embedding_size: 64
-mlp_hidden_size: [64, 32]
-dropout: 0.1
+model:
+  mf_embedding_size: 64
+  mlp_embedding_size: 64
+  mlp_hidden_size: [64, 32]
+  dropout: 0.3
 
 data:
   load_review_text: false
@@ -15,10 +16,10 @@ training:
   batch: 64
   eval_batch: 256
   epoch: 150
-  weight_decay: 0
+  weight_decay: 1e-6
   lr_decay: 0.99
   optimizer: Adam
 
 evaluation:
   eval_step: 1
-  early_stop_patience: 10
+  early_stop_patience: 20

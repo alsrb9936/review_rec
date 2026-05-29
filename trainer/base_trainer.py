@@ -1,9 +1,10 @@
 import abc
+import json
+import logging
 import os
 import torch
 import torch.nn as nn
-from datetime import datetime
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -14,14 +15,22 @@ class BaseTrainer(abc.ABC):
         self.cfg = cfg
         self.device = device
 
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir_name = f"{cfg.model_name}_{cfg.data.dataset}_{cfg.experiment.seed}_{current_time}"
-        
-        with open_dict(cfg):
-            cfg.experiment.save_dir = os.path.join(cfg.experiment.save_dir, run_dir_name)
-        
         os.makedirs(cfg.experiment.save_dir, exist_ok=True)
-        print(f"Save directory: {cfg.experiment.save_dir}")
+        log_path = os.path.join(cfg.experiment.save_dir, "train.log")
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+
+        self.logger = logger
+        self.logger.info(f"Save directory: {cfg.experiment.save_dir}")
 
         if cfg.training.optimizer == "Adam":
             self.optimizer = torch.optim.Adam(
@@ -85,11 +94,14 @@ class BaseTrainer(abc.ABC):
                 metric_name = self.get_metric_name()
                 current_metric = metrics.get(metric_name, float("inf"))
                 
-                print(f"\nEpoch [{self.current_epoch}/{self.cfg.training.epoch}] "
-                      f"Loss: {avg_loss:.4f} | Valid RMSE: {metrics.get('rmse', 0):.4f}, MSE: {metrics.get('mse', 0):.4f}, MAE: {metrics.get('mae', 0):.4f}")
-                
+                self.logger.info(
+                    f"Epoch [{self.current_epoch}/{self.cfg.training.epoch}] "
+                    f"Loss: {avg_loss:.4f} | Valid RMSE: {metrics.get('rmse', 0):.4f}, "
+                    f"MSE: {metrics.get('mse', 0):.4f}, MAE: {metrics.get('mae', 0):.4f}"
+                )
 
                 if current_metric < self.best_metric_value:
+                    print(f"New best {metric_name}: {current_metric:.4f} (previous: {self.best_metric_value:.4f})")
                     self.best_metric_value = current_metric
                     self.patience_counter = 0
                     self._save_checkpoint()
@@ -97,13 +109,27 @@ class BaseTrainer(abc.ABC):
                     self.patience_counter += 1
 
                 if self.patience_counter >= self.cfg.evaluation.early_stop_patience:
-                    print(f"Early stopping at epoch {self.current_epoch}")
+                    self.logger.info(f"Early stopping at epoch {self.current_epoch}")
                     break
 
-        print(f"\nTraining complete. Best {self.get_metric_name()}: {self.best_metric_value:.4f}")
+        self.logger.info(f"Training complete. Best {self.get_metric_name()}: {self.best_metric_value:.4f}")
         self._load_checkpoint()
         test_metrics = self.evaluate(test_loader)
-        print(f"Test Metrics: {test_metrics}")
+        self.logger.info(f"Test Metrics: {test_metrics}")
+
+        test_metrics_path = os.path.join(self.cfg.experiment.save_dir, "test_results.json")
+        with open(test_metrics_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "best_valid_metric": self.best_metric_value,
+                    "best_valid_metric_name": self.get_metric_name(),
+                    "test_metrics": test_metrics,
+                },
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+        self.logger.info(f"Test metrics saved to {test_metrics_path}")
 
     def _move_batch_to_device(self, batch):
         return {

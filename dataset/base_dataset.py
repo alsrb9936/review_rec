@@ -19,20 +19,6 @@ class BaseDataset(Dataset, abc.ABC):
         else:
             self.ratings = torch.zeros(len(df), dtype=torch.float32)
 
-        self.has_review_embedding = "review_embedding" in df.columns
-        self.has_review_text = "review_text" in df.columns
-
-        if self.has_review_embedding:
-            self.review_embeddings = self._stack_embeddings(df["review_embedding"].tolist())
-
-    def _stack_embeddings(self, emb_list):
-        valid = [e for e in emb_list if e is not None]
-        if not valid:
-            return None
-        if isinstance(valid[0], torch.Tensor):
-            return torch.stack(valid)
-        return torch.tensor(valid, dtype=torch.float32)
-
     def __len__(self):
         return len(self.df)
 

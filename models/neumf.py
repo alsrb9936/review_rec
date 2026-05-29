@@ -10,23 +10,23 @@ class NeuMF(BaseModel):
 
         num_users = cfg.stats.num_users
         num_items = cfg.stats.num_items
-        mf_embedding_size = cfg.mf_embedding_size
-        mlp_embedding_size = cfg.mlp_embedding_size
-        mlp_hidden_size = list(cfg.mlp_hidden_size)
+        mf_embedding_size = cfg.model.mf_embedding_size
+        mlp_embedding_size = cfg.model.mlp_embedding_size
+        mlp_hidden_size = list(cfg.model.mlp_hidden_size)
 
         self.user_mf_embedding = nn.Embedding(num_users, mf_embedding_size)
         self.item_mf_embedding = nn.Embedding(num_items, mf_embedding_size)
         self.user_mlp_embedding = nn.Embedding(num_users, mlp_embedding_size)
         self.item_mlp_embedding = nn.Embedding(num_items, mlp_embedding_size)
 
-        self.embedding_dropout = nn.Dropout(p=cfg.dropout)
+        self.embedding_dropout = nn.Dropout(p=cfg.model.dropout)
 
         mlp_layers = []
         input_dim = mlp_embedding_size * 2
         for hidden_dim in mlp_hidden_size:
             mlp_layers.append(nn.Linear(input_dim, hidden_dim))
             mlp_layers.append(nn.ReLU())
-            mlp_layers.append(nn.Dropout(p=cfg.dropout))
+            mlp_layers.append(nn.Dropout(p=cfg.model.dropout))
             input_dim = hidden_dim
         self.mlp_layers = nn.Sequential(*mlp_layers)
 

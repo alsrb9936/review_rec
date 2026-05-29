@@ -10,6 +10,7 @@ data:
   pad_id: 0
   load_review_text: true
   word_embedding_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/glove.6B.50d.txt
+  word_embedding_type: glove
   stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
   punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
   
