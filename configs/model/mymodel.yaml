@@ -2,10 +2,11 @@
 model_name: mymodel
 
 model:
-  d_id: 64
-  d_model: 128
-  d_text : 256
-  dropout: 0.4
+  d_id: 64 #cf embedding dimension
+  d_model: 32 # hidden dimension
+  d_text : 256 # review projection dimension
+  dropout: 0.2
+  num_layers: 3
 
 training:
   batch: 128

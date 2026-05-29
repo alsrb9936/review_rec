@@ -4,65 +4,52 @@ from omegaconf import DictConfig
 from models.base_model import BaseModel
 
 class RatingGraphEncoder(nn.Module):
-    def __init__(self, num_users, num_items, d_id=64, d_model=128, num_layers=2):
+    def __init__(self, num_users, num_items, norm_adj, d_id=64, num_layers=2):
         super().__init__()
+
         self.num_users = int(num_users)
         self.num_items = int(num_items)
         self.num_nodes = self.num_users + self.num_items
         self.d_id = int(d_id)
-        self.d_model = int(d_model)
         self.num_layers = int(num_layers)
+
         self.user_embedding = nn.Embedding(self.num_users, self.d_id)
         self.item_embedding = nn.Embedding(self.num_items, self.d_id)
-        self.projection = nn.Linear(self.d_id * 3, self.d_model)
+
+        self.register_buffer("norm_adj", norm_adj.coalesce())
+
         self._init_weights()
 
     def _init_weights(self):
         nn.init.xavier_uniform_(self.user_embedding.weight)
         nn.init.xavier_uniform_(self.item_embedding.weight)
-        nn.init.xavier_uniform_(self.projection.weight)
-        if self.projection.bias is not None:
-            nn.init.zeros_(self.projection.bias)
 
-    def _propagate_once(self, node_embeddings, edge_index, edge_weight=None):
-        src = edge_index[0]
-        dst = edge_index[1]
-        if edge_weight is None:
-            base_weight = node_embeddings.new_ones(src.size(0))
-        else:
-            base_weight = edge_weight
-
-        degree = node_embeddings.new_zeros(self.num_nodes)
-        degree.index_add_(0, src, base_weight)
-        norm = base_weight / torch.sqrt(degree[src].clamp_min(1e-8) * degree[dst].clamp_min(1e-8))
-
-        aggregated = node_embeddings.new_zeros(node_embeddings.size())
-        aggregated.index_add_(0, dst, node_embeddings[src] * norm.unsqueeze(-1))
-        return aggregated
-
-    def _compute_node_embeddings(self, edge_index, edge_weight=None):
-        edge_index = edge_index.to(self.user_embedding.weight.device)
-        if edge_weight is not None:
-            edge_weight = edge_weight.to(self.user_embedding.weight.device)
-
-        initial_embeddings = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)
-        layer_outputs = [initial_embeddings]
-        propagated = initial_embeddings
-        for _ in range(self.num_layers):
-            propagated = self._propagate_once(propagated, edge_index=edge_index, edge_weight=edge_weight)
-            layer_outputs.append(propagated)
-        stacked = torch.stack(layer_outputs, dim=0)
-        return stacked.mean(dim=0)
-
-    def forward(self, user_ids, item_ids, edge_index, edge_weight=None):
-        all_embeddings = self._compute_node_embeddings(edge_index=edge_index, edge_weight=edge_weight)
-        user_embeddings = all_embeddings[user_ids]
-        item_embeddings = all_embeddings[self.num_users + item_ids]
-        interaction_embeddings = torch.cat(
-            [user_embeddings, item_embeddings, user_embeddings * item_embeddings],
-            dim=-1,
+    def get_all_embeddings(self):
+        x = torch.cat(
+            [self.user_embedding.weight, self.item_embedding.weight],
+            dim=0,
         )
-        return self.projection(interaction_embeddings)
+
+        layer_outputs = [x]
+
+        for _ in range(self.num_layers):
+            x = torch.sparse.mm(self.norm_adj, x)
+            layer_outputs.append(x)
+
+        all_embeddings = torch.stack(layer_outputs, dim=0).mean(dim=0)
+
+        user_embeddings = all_embeddings[:self.num_users]
+        item_embeddings = all_embeddings[self.num_users:]
+
+        return user_embeddings, item_embeddings
+
+    def forward(self, user_ids, item_ids):
+        user_all, item_all = self.get_all_embeddings()
+
+        user_cf = user_all[user_ids]
+        item_cf = item_all[item_ids]
+
+        return user_cf, item_cf
 
 class ReviewProjectionEncoder(nn.Module):
     def __init__(self, input_dim, d_text, dropout):
@@ -70,7 +57,6 @@ class ReviewProjectionEncoder(nn.Module):
         self.input_dim = input_dim
         self.d_text = d_text
         self.dropout = dropout
-
 
         self.projection = nn.Sequential(
             nn.Linear(self.input_dim, self.d_text),
@@ -88,8 +74,11 @@ class ReviewProjectionEncoder(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
+    def forward(self, x):
+        return self.layer_norm(self.projection(x))
+
 class MyModel(BaseModel):
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, norm_adj):
         super().__init__(cfg)
 
         self.num_users = cfg.stats.num_users
@@ -98,40 +87,82 @@ class MyModel(BaseModel):
         self.d_model = cfg.model.d_model
         self.d_text = cfg.model.d_text
         self.dropout = cfg.model.dropout
-        
+        self.num_layers = cfg.model.num_layers
+        self.input_dim = cfg.data.plm_embedding_size
+
+        self.graph_encoder = RatingGraphEncoder(
+            num_users=self.num_users,
+            num_items=self.num_items,
+            norm_adj=norm_adj,
+            d_id=self.d_id,
+            num_layers=self.num_layers,
+        )
+
+        self.user_review_encoder = ReviewProjectionEncoder(
+            input_dim=self.input_dim,
+            d_text=self.d_text,
+            dropout=self.dropout,
+        )
+
+        self.item_review_encoder = ReviewProjectionEncoder(
+            input_dim=self.input_dim,
+            d_text=self.d_text,
+            dropout=self.dropout,
+        )
+        final_dim = self.d_id * 3 + self.d_text * 2
+
+        self.predict_layer = nn.Sequential(
+            nn.Linear(final_dim, self.d_model),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.d_model, 1),
+        )
+
+        self.user_bias = nn.Embedding(self.num_users, 1)
+        self.item_bias = nn.Embedding(self.num_items, 1)
+        self.global_bias = nn.Parameter(torch.zeros(1))
+
         self.loss_fn = nn.MSELoss()
         self._init_weights()
 
     def _init_weights(self):
-        for module in self.mlp_layers_user:
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_normal_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-        for module in self.mlp_layers_item:
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_normal_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-        nn.init.xavier_normal_(self.user_mf_embedding.weight)
-        nn.init.xavier_normal_(self.item_mf_embedding.weight)
+        # bias terms
+        nn.init.zeros_(self.user_bias.weight)
+        nn.init.zeros_(self.item_bias.weight)
+        nn.init.zeros_(self.global_bias)
 
-        nn.init.xavier_normal_(self.predict_layer.weight)
-        if self.predict_layer.bias is not None:
-            nn.init.zeros_(self.predict_layer.bias)
+        # prediction head
+        for module in self.predict_layer.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def forward(self, user_id, item_id, user_review, item_review):
-        user_mf_e = self.embedding_dropout(self.user_mf_embedding(user_id))
-        item_mf_e = self.embedding_dropout(self.item_mf_embedding(item_id))
-        mf_output = user_mf_e * item_mf_e
+        user_cf, item_cf = self.graph_encoder(user_id, item_id)
 
-        mlp_output_user = self.mlp_layers_user(user_review)
-        mlp_output_item = self.mlp_layers_item(item_review)
+        cf_repr = torch.cat(
+            [user_cf, item_cf, user_cf * item_cf],
+            dim=-1,
+        )
 
-        final_input = torch.cat([mf_output, mlp_output_user, mlp_output_item], dim=-1)
-        rating_pred = self.predict_layer(final_input).squeeze(-1)
+        # user_text = self.user_review_encoder(user_review)
+        # item_text = self.item_review_encoder(item_review)
+
+        # final_repr = torch.cat(
+        #     [cf_repr, user_text, item_text],
+        #     dim=-1,
+        # )
+
+        rating_pred = self.predict_layer(cf_repr).squeeze(-1)
+        rating_pred = (
+            rating_pred
+            + self.user_bias(user_id).squeeze(-1)
+            + self.item_bias(item_id).squeeze(-1)
+            + self.global_bias
+        )
         return rating_pred
 
     def calculate_loss(self, user_id, item_id, user_review, item_review, rating):
-        prediction = self.forward(user_id, item_id, user_review, item_review)
-        return self.loss_fn(prediction, rating)
+        pred = self.forward(user_id, item_id, user_review, item_review)
+        return self.loss_fn(pred, rating)
