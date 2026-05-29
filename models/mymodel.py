@@ -57,53 +57,50 @@ class RatingGraphEncoder(nn.Module):
 
 
 class ReviewProjectionEncoder(nn.Module):
+    """
+    Projects precomputed PLM mean-pooled review profiles into the CF comparison
+    space. This is intentionally shallow: the PLM embedding is already computed
+    before training, so this layer should align dimensions rather than learn a
+    new text encoder.
+    """
+
     def __init__(self, input_dim, d_text, dropout):
         super().__init__()
-        self.input_dim = int(input_dim)
-        self.d_text = int(d_text)
-        self.dropout = float(dropout)
-
-        self.projection = nn.Sequential(
-            nn.Linear(self.input_dim, self.d_text),
-            nn.GELU(),
-            nn.Dropout(self.dropout),
-        )
-
-        self.layer_norm = nn.LayerNorm(self.d_text)
+        self.projection = nn.Linear(int(input_dim), int(d_text))
+        self.layer_norm = nn.LayerNorm(int(d_text))
+        self.dropout = nn.Dropout(float(dropout))
         self._init_weights()
 
     def _init_weights(self):
-        for module in self.projection.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
+        nn.init.xavier_uniform_(self.projection.weight)
+        if self.projection.bias is not None:
+            nn.init.zeros_(self.projection.bias)
 
     def forward(self, x):
-        return self.layer_norm(self.projection(x))
+        x = self.projection(x)
+        x = self.layer_norm(x)
+        return self.dropout(x)
 
 
 class MyModel(BaseModel):
     """
-    CF-guided Orthogonal Review Decomposition for rating prediction.
+    Minimal CF-guided orthogonal review decomposition.
 
-    Expected input:
-        user_id:     [B]
-        item_id:     [B]
-        user_review: [B, D_plm] or [B, K_u, D_plm]
-                     historical reviews written by the target user,
-                     excluding the target interaction review.
-        item_review: [B, D_plm] or [B, K_i, D_plm]
-                     historical reviews received by the target item,
-                     excluding the target interaction review.
+    Current dataset assumption:
+        user_review: [B, D_plm]
+            Mean-pooled historical review profile of the target user.
+        item_review: [B, D_plm]
+            Mean-pooled historical review profile of the target item.
 
-    The model keeps collaborative and review signals separated:
-        1) RatingGraphEncoder builds the collaborative latent representation.
-        2) Review encoders build a pair-specific review-derived representation.
-        3) The review-derived representation is orthogonally decomposed with
-           respect to the collaborative representation.
-        4) The shared component is used as a gated rating correction.
-        5) The residual component is used to estimate review-signal reliability.
+    The target interaction review should not be included in either profile.
+    See dataset/mymodel_dataset.py and set data.retain_rui=false.
+
+    Design principle:
+        - CF graph builds the collaborative latent representation.
+        - Review profiles are projected once into the same dimension.
+        - Review signal is decomposed with respect to the CF direction.
+        - The shared component gives a small residual correction.
+        - The gate is deterministic: the shared energy ratio. No trainable gate MLP.
     """
 
     def __init__(self, cfg: DictConfig, norm_adj):
@@ -119,8 +116,7 @@ class MyModel(BaseModel):
         self.input_dim = cfg.data.plm_embedding_size
 
         self.eps = float(cfg.model.get("eps", 1e-8))
-        self.lambda_align = float(cfg.model.get("lambda_align", 0.01))
-        self.lambda_gate = float(cfg.model.get("lambda_gate", 0.001))
+        self.lambda_align = float(cfg.model.get("lambda_align", 0.0))
         self.align_tau = float(cfg.model.get("align_tau", 0.1))
         self.min_rating = float(cfg.data.get("min_rating", 1.0))
         self.max_rating = float(cfg.data.get("max_rating", 5.0))
@@ -133,65 +129,26 @@ class MyModel(BaseModel):
             num_layers=self.num_layers,
         )
 
-        self.user_review_encoder = ReviewProjectionEncoder(
+        # One shared projector keeps user/item review profiles in a common PLM-derived space.
+        self.review_projector = ReviewProjectionEncoder(
             input_dim=self.input_dim,
             d_text=self.d_text,
             dropout=self.dropout,
         )
 
-        self.item_review_encoder = ReviewProjectionEncoder(
-            input_dim=self.input_dim,
-            d_text=self.d_text,
-            dropout=self.dropout,
-        )
-
-        # CF branch: user/item graph embeddings -> pair-level collaborative vector.
+        # CF pair representation used as the decomposition direction.
         self.cf_pair_proj = nn.Sequential(
-            nn.Linear(self.d_id * 3, self.d_model),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.d_model, self.d_text),
+            nn.Linear(self.d_id * 3, self.d_text),
             nn.LayerNorm(self.d_text),
         )
 
-        self.cf_predict_layer = nn.Sequential(
-            nn.Linear(self.d_text, self.d_model),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.d_model, 1),
-        )
+        # Lightweight review-pair fusion. No large concat MLP.
+        self.review_pair_norm = nn.LayerNorm(self.d_text)
+        self.review_pair_dropout = nn.Dropout(self.dropout)
 
-        # Query projections are used only when review histories are given as
-        # [B, K, D]. If the dataset already provides mean-pooled [B, D]
-        # review profiles, these layers are not used.
-        self.user_query_proj = nn.Linear(self.d_id, self.d_text)
-        self.item_query_proj = nn.Linear(self.d_id, self.d_text)
-
-        # Review branch: user-side and item-side review profiles -> pair-specific
-        # review-derived representation.
-        self.review_pair_layer = nn.Sequential(
-            nn.Linear(self.d_text * 3, self.d_model),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.d_model, self.d_text),
-            nn.LayerNorm(self.d_text),
-        )
-
-        # Shared review component produces a correction to the CF prediction.
-        self.review_delta_layer = nn.Sequential(
-            nn.Linear(self.d_text, self.d_model),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.d_model, 1),
-        )
-
-        # Reliability gate uses collaborative, shared, and residual signals.
-        self.gate_layer = nn.Sequential(
-            nn.Linear(self.d_text * 3 + 2, self.d_model),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.d_model, 1),
-        )
+        # Shared component produces only a residual correction to the CF prediction.
+        # Zero initialization makes the initial model exactly CF-only plus biases.
+        self.review_delta_layer = nn.Linear(self.d_text, 1)
 
         self.user_bias = nn.Embedding(self.num_users, 1)
         self.item_bias = nn.Embedding(self.num_items, 1)
@@ -200,98 +157,60 @@ class MyModel(BaseModel):
         self.loss_fn = nn.MSELoss()
         self._init_weights()
 
-    def _init_linear_block(self, block):
-        for module in block.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
     def _init_weights(self):
         nn.init.zeros_(self.user_bias.weight)
         nn.init.zeros_(self.item_bias.weight)
         nn.init.zeros_(self.global_bias)
 
-        self._init_linear_block(self.cf_pair_proj)
-        self._init_linear_block(self.cf_predict_layer)
-        self._init_linear_block(self.review_pair_layer)
-        self._init_linear_block(self.review_delta_layer)
-        self._init_linear_block(self.gate_layer)
+        for module in self.cf_pair_proj.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
-        nn.init.xavier_uniform_(self.user_query_proj.weight)
-        nn.init.zeros_(self.user_query_proj.bias)
-        nn.init.xavier_uniform_(self.item_query_proj.weight)
-        nn.init.zeros_(self.item_query_proj.bias)
+        nn.init.zeros_(self.review_delta_layer.weight)
+        if self.review_delta_layer.bias is not None:
+            nn.init.zeros_(self.review_delta_layer.bias)
 
-    def _encode_review_profile(self, review, encoder, query=None, mask=None):
-        """
-        Supports both current dataset format and future history-set format.
+    def _build_cf_representation(self, user_cf, item_cf):
+        cf_raw = torch.cat([user_cf, item_cf, user_cf * item_cf], dim=-1)
+        c_ui = self.cf_pair_proj(cf_raw)
+        return c_ui
 
-        Current format:
-            review: [B, D_plm]
-            returns encoded review profile [B, d_text]
-
-        Future format:
-            review: [B, K, D_plm]
-            query:  [B, d_text]
-            mask:   [B, K], True/1 for valid review, False/0 for padding
-            returns query-aware attentive review profile [B, d_text]
-        """
-        if review.dim() == 2:
-            return encoder(review)
-
-        if review.dim() != 3:
+    def _build_review_pair_representation(self, user_review, item_review):
+        if user_review.dim() != 2 or item_review.dim() != 2:
             raise ValueError(
-                f"review must have shape [B, D] or [B, K, D], got {tuple(review.shape)}"
+                "This simplified MyModel expects mean-pooled review profiles: "
+                "user_review and item_review should both have shape [B, D_plm]."
             )
 
-        encoded = encoder(review)  # [B, K, d_text]
+        user_text = self.review_projector(user_review)
+        item_text = self.review_projector(item_review)
 
-        if query is None:
-            if mask is None:
-                return encoded.mean(dim=1)
-
-            mask = mask.bool()
-            denom = mask.sum(dim=1, keepdim=True).clamp_min(1).to(encoded.dtype)
-            pooled = (encoded * mask.unsqueeze(-1).to(encoded.dtype)).sum(dim=1) / denom
-            return pooled
-
-        query = F.normalize(query, dim=-1)
-        encoded_norm = F.normalize(encoded, dim=-1)
-        scores = (encoded_norm * query.unsqueeze(1)).sum(dim=-1) / math.sqrt(self.d_text)
-
-        if mask is not None:
-            mask = mask.bool()
-            scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
-
-        attn = torch.softmax(scores, dim=1)
-
-        if mask is not None:
-            # Avoid NaNs for samples where every history slot is padding.
-            empty = ~mask.any(dim=1)
-            if empty.any():
-                attn = attn.masked_fill(empty.unsqueeze(1), 0.0)
-
-        return torch.bmm(attn.unsqueeze(1), encoded).squeeze(1)
+        # Elementwise fusion keeps the structure compact while still making the
+        # representation pair-specific.
+        z_review_pair = user_text + item_text + user_text * item_text
+        z_review_pair = self.review_pair_norm(z_review_pair)
+        return self.review_pair_dropout(z_review_pair)
 
     def _orthogonal_decompose(self, z_review_pair, c_ui):
         """
-        Decompose review-derived representation with respect to collaborative
-        representation direction.
+        Decompose review-derived representation with respect to the collaborative
+        direction.
 
-        z_shared  : component explainable by collaborative subspace.
-        z_residual: orthogonal complement, interpreted as review-specific signal.
+        z_shared is the component explainable by CF.
+        z_residual is the orthogonal complement, interpreted as review-specific signal.
         """
         c_unit = F.normalize(c_ui, p=2, dim=-1, eps=self.eps)
         scalar_projection = (z_review_pair * c_unit).sum(dim=-1, keepdim=True)
         z_shared = scalar_projection * c_unit
         z_residual = z_review_pair - z_shared
 
-        review_norm = z_review_pair.norm(p=2, dim=-1, keepdim=True).clamp_min(self.eps)
-        shared_ratio = z_shared.norm(p=2, dim=-1, keepdim=True) / review_norm
-        residual_ratio = z_residual.norm(p=2, dim=-1, keepdim=True) / review_norm
+        total_energy = z_review_pair.pow(2).sum(dim=-1, keepdim=True).clamp_min(self.eps)
+        shared_energy_ratio = z_shared.pow(2).sum(dim=-1, keepdim=True) / total_energy
+        residual_energy_ratio = z_residual.pow(2).sum(dim=-1, keepdim=True) / total_energy
 
-        return z_shared, z_residual, shared_ratio, residual_ratio
+        return z_shared, z_residual, shared_energy_ratio, residual_energy_ratio
 
     def _rating_alignment_weight(self, rating):
         center = (self.min_rating + self.max_rating) / 2.0
@@ -300,25 +219,11 @@ class MyModel(BaseModel):
         clarity = clarity.clamp(0.0, 1.0)
         return self.align_tau + (1.0 - self.align_tau) * clarity
 
-    def forward(
-        self,
-        user_id,
-        item_id,
-        user_review,
-        item_review,
-        user_review_mask=None,
-        item_review_mask=None,
-        return_dict=False,
-    ):
+    def forward(self, user_id, item_id, user_review, item_review, return_dict=False):
         user_cf, item_cf = self.graph_encoder(user_id, item_id)
 
-        cf_raw = torch.cat(
-            [user_cf, item_cf, user_cf * item_cf],
-            dim=-1,
-        )
-        c_ui = self.cf_pair_proj(cf_raw)
-
-        cf_pred = self.cf_predict_layer(c_ui).squeeze(-1)
+        # Pure CF prediction. This avoids hiding review information inside the CF score.
+        cf_pred = (user_cf * item_cf).sum(dim=-1) / math.sqrt(self.d_id)
         cf_pred = (
             cf_pred
             + self.user_bias(user_id).squeeze(-1)
@@ -326,25 +231,8 @@ class MyModel(BaseModel):
             + self.global_bias
         )
 
-        item_query = self.item_query_proj(item_cf)
-        user_query = self.user_query_proj(user_cf)
-
-        user_text = self._encode_review_profile(
-            review=user_review,
-            encoder=self.user_review_encoder,
-            query=item_query,
-            mask=user_review_mask,
-        )
-        item_text = self._encode_review_profile(
-            review=item_review,
-            encoder=self.item_review_encoder,
-            query=user_query,
-            mask=item_review_mask,
-        )
-
-        z_review_pair = self.review_pair_layer(
-            torch.cat([user_text, item_text, user_text * item_text], dim=-1)
-        )
+        c_ui = self._build_cf_representation(user_cf, item_cf)
+        z_review_pair = self._build_review_pair_representation(user_review, item_review)
 
         z_shared, z_residual, shared_ratio, residual_ratio = self._orthogonal_decompose(
             z_review_pair=z_review_pair,
@@ -353,12 +241,9 @@ class MyModel(BaseModel):
 
         review_delta = self.review_delta_layer(z_shared).squeeze(-1)
 
-        gate_input = torch.cat(
-            [c_ui, z_shared, z_residual, shared_ratio, residual_ratio],
-            dim=-1,
-        )
-        gate = torch.sigmoid(self.gate_layer(gate_input)).squeeze(-1)
-
+        # Deterministic reliability gate. If most review energy lies in the CF-aligned
+        # component, the correction is used more. If residual dominates, it is reduced.
+        gate = shared_ratio.squeeze(-1).clamp(0.0, 1.0)
         rating_pred = cf_pred + gate * review_delta
 
         if return_dict:
@@ -389,20 +274,12 @@ class MyModel(BaseModel):
         pred = outputs["rating_pred"]
         rating_loss = self.loss_fn(pred, rating)
 
-        shared_ratio = outputs["shared_ratio"]
-        gate = outputs["gate"]
+        if self.lambda_align <= 0.0:
+            return rating_loss
 
+        # Optional diagnostic alignment regularization. Keep disabled by default.
+        shared_ratio = outputs["shared_ratio"]
         align_weight = self._rating_alignment_weight(rating)
         align_loss = (align_weight * (1.0 - shared_ratio).pow(2)).mean()
 
-        # Gate should roughly follow how much review information is explained by
-        # the collaborative direction, but this is intentionally weak.
-        gate_loss = (gate - shared_ratio.detach()).pow(2).mean()
-
-        loss = (
-            rating_loss
-            + self.lambda_align * align_loss
-            + self.lambda_gate * gate_loss
-        )
-
-        return loss
+        return rating_loss + self.lambda_align * align_loss
