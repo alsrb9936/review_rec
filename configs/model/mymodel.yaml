@@ -2,22 +2,24 @@
 model_name: mymodel
 
 model:
-  d_id: 64 # cf embedding dimension
-  d_model: 32 # hidden dimension
-  d_text : 256 # review projection dimension
+  d_id: 64
+  d_model: 64
+  d_text: 128
   dropout: 0.2
   num_layers: 3
-  lambda_align: 0.01
-  lambda_gate: 0.001
+  subspace_rank: 4
+  review_scale_init: 0.1
+  lambda_align: 0.0
+  lambda_orth: 0.0
   align_tau: 0.1
   eps: 1e-8
 
 training:
-  batch: 128
+  batch: 64
   eval_batch: 256
   epoch: 100
   lr: 0.001
-  weight_decay: 2e-5
+  weight_decay: 1e-5
   lr_decay: 0.99
   optimizer: Adam
 
