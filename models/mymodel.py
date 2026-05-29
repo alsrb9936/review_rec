@@ -191,12 +191,82 @@ class MyModel(BaseModel):
         )
         return self.review_pair_layer(review_features)
 
+    # def _make_basis(self, c_ui):
+    #     # if not torch.isfinite(c_ui).all():
+    #     #     bad = (~torch.isfinite(c_ui)).nonzero()[:10]
+    #     #     raise RuntimeError(f"c_ui has NaN/Inf: {bad}")
+    #     bsz = c_ui.size(0)
+    #     raw_basis = self.basis_layer(c_ui).view(bsz, self.d_text, self.subspace_rank)
+    #     # if not torch.isfinite(raw_basis).all():
+    #     #     bad = (~torch.isfinite(raw_basis)).nonzero()[:10]
+    #     #     raise RuntimeError(f"raw_basis has NaN/Inf: {bad}")
+    #     q_basis, _ = torch.linalg.qr(raw_basis, mode="reduced")
+    #     return q_basis
+    # def _make_basis(self, c_ui):
+    #     bsz = c_ui.size(0)
+    #     raw_basis = self.basis_layer(c_ui).reshape(
+    #         bsz, self.d_text, self.subspace_rank
+    #     )
+
+    #     raw_basis = torch.nan_to_num(
+    #         raw_basis,
+    #         nan=0.0,
+    #         posinf=1e4,
+    #         neginf=-1e4,
+    #     )
+
+    #     q_basis, _ = torch.linalg.qr(raw_basis.cpu(), mode="reduced")
+    #     return q_basis.to(raw_basis.device)
     def _make_basis(self, c_ui):
         bsz = c_ui.size(0)
-        raw_basis = self.basis_layer(c_ui).view(bsz, self.d_text, self.subspace_rank)
-        q_basis, _ = torch.linalg.qr(raw_basis, mode="reduced")
-        return q_basis
 
+        raw_basis = self.basis_layer(c_ui).reshape(
+            bsz, self.d_text, self.subspace_rank
+        )
+
+        raw_basis = torch.nan_to_num(
+            raw_basis,
+            nan=0.0,
+            posinf=1e4,
+            neginf=-1e4,
+        )
+
+        cols = []
+        threshold = 1e-6
+
+        for k in range(self.subspace_rank):
+            v = raw_basis[:, :, k]
+
+            # Modified Gram-Schmidt, two passes for stability
+            for _ in range(2):
+                for q in cols:
+                    v = v - (v * q).sum(dim=-1, keepdim=True) * q
+
+            norm = v.norm(dim=-1, keepdim=True)
+            v_normed = v / norm.clamp_min(self.eps)
+
+            # fallback for degenerate column
+            fallback_idx = min(k, self.d_text - 1)
+            fallback = F.one_hot(
+                torch.full(
+                    (bsz,),
+                    fallback_idx,
+                    device=c_ui.device,
+                    dtype=torch.long,
+                ),
+                num_classes=self.d_text,
+            ).to(dtype=raw_basis.dtype)
+
+            for q in cols:
+                fallback = fallback - (fallback * q).sum(dim=-1, keepdim=True) * q
+
+            fallback = fallback / fallback.norm(dim=-1, keepdim=True).clamp_min(self.eps)
+
+            q_new = torch.where(norm > threshold, v_normed, fallback)
+            cols.append(q_new)
+
+        q_basis = torch.stack(cols, dim=-1)
+        return q_basis
     def _orthogonal_decompose(self, z_review, c_ui):
         q_basis = self._make_basis(c_ui)
         coeff = torch.bmm(q_basis.transpose(1, 2), z_review.unsqueeze(-1))

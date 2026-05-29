@@ -14,8 +14,8 @@ model:
   eps: 1e-8
 
 training:
-  batch: 512
-  eval_batch: 256
+  batch: 128
+  eval_batch: 64
   epoch: 100
   lr: 0.001
   weight_decay: 1e-5
