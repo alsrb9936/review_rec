@@ -245,7 +245,13 @@ def get_dataloader(cfg: DictConfig):
 
         return train_dataloader, valid_dataloader, test_dataloader, word_emb, word_dict
     
-    elif model_name in ["mymodel"]:
+    elif model_name in [
+        "mymodel",
+        "mymodel_cfonly",
+        "mymodel_concat",
+        "mymodel_shared",
+        "mymodel_full",
+    ]:
         interactions["review_text"] = clean_review(cfg, interactions["review_text"])
 
         train_df, valid_df, test_df = split_by_ratio(

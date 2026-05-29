@@ -8,4 +8,8 @@ MODEL_TRAINER_DICT = {
     "deepconn": DeepCoNNTrainer,
     "narre": NARRETrainer,
     "mymodel": MyModelTrainer,
+    "mymodel_cfonly": MyModelTrainer,
+    "mymodel_concat": MyModelTrainer,
+    "mymodel_shared": MyModelTrainer,
+    "mymodel_full": MyModelTrainer,
 }

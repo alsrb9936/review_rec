@@ -1,0 +1,63 @@
+# @package _global_
+model_name: mymodel_shared
+model:
+  d_id: 64
+  d_model: 64
+  d_text: 128
+  dropout: 0.2
+  num_layers: 3
+  subspace_rank: 4
+  review_scale_init: 0.1
+  lambda_align: 0.0
+  lambda_orth: 0.0
+  align_tau: 0.1
+  eps: 1e-8
+
+training:
+  batch: 512
+  eval_batch: 256
+  epoch: 100
+  lr: 0.001
+  weight_decay: 1e-5
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10
+
+data:
+  root: /home/infolab/mnt/mingyu/review_rec/dataset
+  cache_dir: /home/infolab/mnt/mingyu/review_rec/review4rec/cached
+  dataset: Amazon_All_Beauty_18
+  language_model: "sentence-transformers/all-MiniLM-L6-v2"
+  plm_embedding : true
+  embedding_batch_size: 16
+  plm_embedding_size: 384
+  min_rating: 1.0
+  max_rating: 5.0
+  load_review_text: true
+  stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
+  punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
+  separator: "\t"
+  retain_rui : false
+  columns:
+    user_id: user_id
+    item_id: item_id
+    timestamp: timestamp
+    rating: rating
+    review_text: reviewText
+    review_embedding: review_embedding
+  split:
+    train_ratio: 0.8
+    valid_ratio: 0.1
+
+experiment:
+  seed: 42
+  device: 0
+  save_dir: ./outputs
+  log_step: 10
+
+stats:
+  num_users: 0
+  num_items: 0

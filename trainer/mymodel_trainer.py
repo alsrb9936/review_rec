@@ -31,12 +31,12 @@ class MyModelTrainer(BaseTrainer):
 
         with torch.no_grad():
             for batch in data_loader:
-                batch = self._move_batch_to_device(batch)
-                user_id = batch["user_id"]
-                item_id = batch["item_id"]
-                rating = batch["rating"]
-                user_review = batch["user_review"]
-                item_review = batch["item_review"]
+                # batch = self._move_batch_to_device(batch)
+                user_id = batch["user_id"].to(self.device)
+                item_id = batch["item_id"].to(self.device)
+                rating = batch["rating"].to(self.device)
+                user_review = batch["user_review"].to(self.device)
+                item_review = batch["item_review"].to(self.device)
 
                 preds = self.model(user_id, item_id, user_review, item_review)
                 all_preds.append(preds.cpu())
