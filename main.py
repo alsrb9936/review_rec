@@ -63,6 +63,9 @@ def main(cfg: DictConfig) -> None:
         train_loader, valid_loader, test_loader, word_emb, _ = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg,word_emb).to(device)
 
+    elif model_name in ["mymodel"]:
+        train_loader, valid_loader, test_loader, norm_adj = get_dataloader(cfg)
+        model = MODEL_DICT[model_name](cfg, norm_adj).to(device)
     else:
         train_loader, valid_loader, test_loader = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg).to(device)

@@ -4,14 +4,14 @@ from omegaconf import DictConfig
 from models.base_model import BaseModel
 
 class RatingGraphEncoder(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, num_users, num_items, d_id=64, d_model=128, num_layers=2):
         super().__init__()
-        self.num_users = int(cfg.data.num_users)
-        self.num_items = int(cfg.data.num_items)
+        self.num_users = int(num_users)
+        self.num_items = int(num_items)
         self.num_nodes = self.num_users + self.num_items
-        self.d_id = int(cfg.model.d_id)
-        self.d_model = int(cfg.model.d_model)
-        self.num_layers = int(cfg.model.num_layers)
+        self.d_id = int(d_id)
+        self.d_model = int(d_model)
+        self.num_layers = int(num_layers)
         self.user_embedding = nn.Embedding(self.num_users, self.d_id)
         self.item_embedding = nn.Embedding(self.num_items, self.d_id)
         self.projection = nn.Linear(self.d_id * 3, self.d_model)
@@ -65,11 +65,11 @@ class RatingGraphEncoder(nn.Module):
         return self.projection(interaction_embeddings)
 
 class ReviewProjectionEncoder(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, input_dim, d_text, dropout):
         super().__init__()
-        self.input_dim = cfg.data.plm_embedding_size
-        self.d_text = cfg.model.d_text
-        self.dropout = cfg.model.dropout
+        self.input_dim = input_dim
+        self.d_text = d_text
+        self.dropout = dropout
 
 
         self.projection = nn.Sequential(
@@ -92,29 +92,13 @@ class MyModel(BaseModel):
     def __init__(self, cfg: DictConfig):
         super().__init__(cfg)
 
-        num_users = cfg.stats.num_users
-        num_items = cfg.stats.num_items
-        mf_embedding_size = cfg.model.mf_embedding_size
-        mlp_hidden_size = list(cfg.model.mlp_hidden_size)
-
-        self.user_mf_embedding = nn.Embedding(num_users, mf_embedding_size)
-        self.item_mf_embedding = nn.Embedding(num_items, mf_embedding_size)
-        self.embedding_dropout = nn.Dropout(p=cfg.model.dropout)
-
-        mlp_layers = []
-        input_dim = cfg.data.plm_embedding_size
-        for hidden_dim in mlp_hidden_size:
-            mlp_layers.append(nn.Linear(input_dim, hidden_dim))
-            mlp_layers.append(nn.ReLU())
-            mlp_layers.append(nn.Dropout(p=cfg.model.dropout))
-            input_dim = hidden_dim
-        self.mlp_layers_user = nn.Sequential(*mlp_layers)
-        self.mlp_layers_item = nn.Sequential(*mlp_layers)
-
+        self.num_users = cfg.stats.num_users
+        self.num_items = cfg.stats.num_items
+        self.d_id = cfg.model.d_id
+        self.d_model = cfg.model.d_model
+        self.d_text = cfg.model.d_text
+        self.dropout = cfg.model.dropout
         
-        mlp_output_dim = input_dim
-        self.predict_layer = nn.Linear(mf_embedding_size + mlp_output_dim * 2, 1)
-
         self.loss_fn = nn.MSELoss()
         self._init_weights()
 

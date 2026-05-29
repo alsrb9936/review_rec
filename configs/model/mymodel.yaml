@@ -2,7 +2,8 @@
 model_name: mymodel
 
 model:
-  hidden_dim: 64
+  d_id: 64
+  d_model: 128
   d_text : 256
   dropout: 0.4
 

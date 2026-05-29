@@ -12,6 +12,8 @@ from utils.preprocess import glove_load_embedding, google_load_embedding, clean_
 from torch.utils.data import DataLoader
 from dataset import DATASET_DICT
 from sklearn.model_selection import train_test_split
+from utils.graph import build_lightgcn_norm_adj
+
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
 
 
@@ -243,19 +245,43 @@ def get_dataloader(cfg: DictConfig):
 
         return train_dataloader, valid_dataloader, test_dataloader, word_emb, word_dict
     
-    if model_name in ["mymodel"]:
-        interactions['review_text'] = clean_review(cfg, interactions['review_text'])
-        train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
+    elif model_name in ["mymodel"]:
+        interactions["review_text"] = clean_review(cfg, interactions["review_text"])
+
+        train_df, valid_df, test_df = split_by_ratio(
+            interactions,
+            train_ratio=cfg.data.split.train_ratio,
+            valid_ratio=cfg.data.split.valid_ratio,
+            random_state=cfg.experiment.seed,
+        )
 
         train_dataset = dataset_cls(train_df, cfg, split="train")
-        valid_dataset = dataset_cls(valid_df, cfg, split="valid" ,history_df=train_df)
+        valid_dataset = dataset_cls(valid_df, cfg, split="valid", history_df=train_df)
         test_dataset = dataset_cls(test_df, cfg, split="test", history_df=train_df)
 
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
-        test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=cfg.training.batch,
+            shuffle=True,
+        )
+        valid_dataloader = DataLoader(
+            valid_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
 
-        return train_dataloader, valid_dataloader, test_dataloader
+        norm_adj = build_lightgcn_norm_adj(
+            train_df=train_df,
+            num_users=cfg.stats.num_users,
+            num_items=cfg.stats.num_items,
+        )
+
+        return train_dataloader, valid_dataloader, test_dataloader, norm_adj
     else:        
         train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
 

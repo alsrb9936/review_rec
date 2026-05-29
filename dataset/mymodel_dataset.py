@@ -64,7 +64,7 @@ class MyModelDataset(Dataset):
         self.ratings = torch.tensor(
             target_df["rating"].values,
             dtype=torch.float32,
-        ).view(-1, 1)
+        )
 
         # target_review_emb = self._stack_embeddings(
         #     target_df["review_embedding"].to_numpy()
