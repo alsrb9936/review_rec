@@ -1,9 +1,16 @@
 # models/rgcl.py
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import dgl.function as fn
 
 from models.base_model import BaseModel
+
+
+def _rating_to_etype_name(rating) -> str:
+    value = float(rating)
+    if value.is_integer():
+        return str(int(value))
+    return str(value).replace(".", "_")
 
 
 class ContrastLoss(nn.Module):
@@ -39,87 +46,155 @@ class ContrastLoss(nn.Module):
         return self.loss_fn(logits, labels)
 
 
+class ReviewAwareGraphConv(nn.Module):
+    """One rating-specific RGCL message-passing module.
+
+    This follows the official DGL implementation pattern:
+      message = (neighbor_embedding * sigmoid(prob_score(review_feat))
+                 + review_w(review_feat) * sigmoid(review_score(review_feat)))
+                * source_cj
+      output = sum(message) * destination_ci
+    """
+
+    def __init__(self, review_dim: int, hidden_dim: int, dropout: float):
+        super().__init__()
+        self.review_dim = int(review_dim)
+        self.hidden_dim = int(hidden_dim)
+        self.dropout = nn.Dropout(float(dropout))
+
+        self.prob_score = nn.Linear(self.review_dim, 1, bias=False)
+        self.review_score = nn.Linear(self.review_dim, 1, bias=False)
+        self.review_w = nn.Linear(self.review_dim, self.hidden_dim, bias=False)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.prob_score.weight)
+        nn.init.xavier_uniform_(self.review_score.weight)
+        nn.init.xavier_uniform_(self.review_w.weight)
+
+    def forward(self, rel_graph, src_feat, src_cj, dst_ci):
+        with rel_graph.local_scope():
+            rel_graph.srcdata["h"] = src_feat
+            rel_graph.srcdata["cj"] = src_cj
+
+            review_feat = rel_graph.edata["review_feat"]
+            rel_graph.edata["pa"] = torch.sigmoid(self.prob_score(review_feat))
+            rel_graph.edata["rf"] = self.review_w(review_feat) * torch.sigmoid(
+                self.review_score(review_feat)
+            )
+
+            def message_func(edges):
+                message = edges.src["h"] * edges.data["pa"] + edges.data["rf"]
+                message = self.dropout(message) * edges.src["cj"]
+                return {"m": message}
+
+            rel_graph.update_all(message_func, fn.sum(msg="m", out="h"))
+            return rel_graph.dstdata["h"] * dst_ci
+
+
 class RGCLGraphEncoder(nn.Module):
-    def __init__(self, num_users, num_items, review_dim, hidden_dim, dropout):
+    def __init__(
+        self,
+        num_users,
+        num_items,
+        review_dim,
+        hidden_dim,
+        dropout,
+        rating_values,
+    ):
         super().__init__()
 
         self.num_users = int(num_users)
         self.num_items = int(num_items)
         self.review_dim = int(review_dim)
         self.hidden_dim = int(hidden_dim)
+        self.rating_values = [float(r) for r in rating_values]
+        self.etype_names = [_rating_to_etype_name(r) for r in self.rating_values]
 
         self.user_embedding = nn.Embedding(self.num_users, self.hidden_dim)
         self.item_embedding = nn.Embedding(self.num_items, self.hidden_dim)
 
-        self.prob_score = nn.Linear(self.review_dim, 1, bias=False)
-        self.review_score = nn.Linear(self.review_dim, 1, bias=False)
-        self.review_w = nn.Linear(self.review_dim, self.hidden_dim, bias=False)
-
+        self.user_fc = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.item_fc = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.activation = nn.GELU()
         self.dropout = nn.Dropout(float(dropout))
+
+        # Rating-specific modules. Forward and reverse relations intentionally
+        # do not share parameters, matching the official DGL heterograph style.
+        self.convs = nn.ModuleDict()
+        for etype in self.etype_names:
+            self.convs[etype] = ReviewAwareGraphConv(
+                review_dim=self.review_dim,
+                hidden_dim=self.hidden_dim,
+                dropout=dropout,
+            )
+            self.convs[f"rev-{etype}"] = ReviewAwareGraphConv(
+                review_dim=self.review_dim,
+                hidden_dim=self.hidden_dim,
+                dropout=dropout,
+            )
 
         self.reset_parameters()
 
     def reset_parameters(self):
         nn.init.xavier_uniform_(self.user_embedding.weight)
         nn.init.xavier_uniform_(self.item_embedding.weight)
-        nn.init.xavier_uniform_(self.prob_score.weight)
-        nn.init.xavier_uniform_(self.review_score.weight)
-        nn.init.xavier_uniform_(self.review_w.weight)
+        nn.init.xavier_uniform_(self.user_fc.weight)
+        nn.init.xavier_uniform_(self.item_fc.weight)
+        nn.init.zeros_(self.user_fc.bias)
+        nn.init.zeros_(self.item_fc.bias)
 
     def forward(self, graph):
-        device = self.user_embedding.weight.device
+        user_base = self.user_embedding.weight
+        item_base = self.item_embedding.weight
 
         user_out = torch.zeros(
             self.num_users,
             self.hidden_dim,
-            device=device,
+            device=user_base.device,
         )
         item_out = torch.zeros(
             self.num_items,
             self.hidden_dim,
-            device=device,
+            device=item_base.device,
         )
 
-        user_deg = torch.zeros(self.num_users, 1, device=device)
-        item_deg = torch.zeros(self.num_items, 1, device=device)
+        user_ci = graph.nodes["user"].data["ci"]
+        user_cj = graph.nodes["user"].data["cj"]
+        item_ci = graph.nodes["item"].data["ci"]
+        item_cj = graph.nodes["item"].data["cj"]
 
-        for rating in graph["rating_values"]:
-            users, items = graph["edge_index_by_rating"][rating]
-            review_feat = graph["edge_review_by_rating"][rating]
-
-            users = users.to(device)
-            items = items.to(device)
-            review_feat = review_feat.to(device)
-
-            user_base = self.user_embedding(users)
-            item_base = self.item_embedding(items)
-
-            pa = torch.sigmoid(self.prob_score(review_feat))
-            rf = self.review_w(review_feat) * torch.sigmoid(
-                self.review_score(review_feat)
+        for etype in self.etype_names:
+            # user -> item for this rating value
+            item_out = item_out + self.convs[etype](
+                graph[("user", etype, "item")],
+                src_feat=user_base,
+                src_cj=user_cj,
+                dst_ci=item_ci,
             )
 
-            # user -> item message
-            msg_item = self.dropout(user_base * pa + rf)
-            item_out.index_add_(0, items, msg_item)
-            item_deg.index_add_(0, items, torch.ones_like(pa))
+            # item -> user for the reverse relation
+            rev_etype = f"rev-{etype}"
+            user_out = user_out + self.convs[rev_etype](
+                graph[("item", rev_etype, "user")],
+                src_feat=item_base,
+                src_cj=item_cj,
+                dst_ci=user_ci,
+            )
 
-            # item -> user message
-            msg_user = self.dropout(item_base * pa + rf)
-            user_out.index_add_(0, users, msg_user)
-            user_deg.index_add_(0, users, torch.ones_like(pa))
-
-        user_out = user_out / user_deg.clamp_min(1.0)
-        item_out = item_out / item_deg.clamp_min(1.0)
-
+        user_out = self.user_fc(self.dropout(self.activation(user_out)))
+        item_out = self.item_fc(self.dropout(self.activation(item_out)))
         return user_out, item_out
-    
+
+
 class RGCL(BaseModel):
     def __init__(self, cfg, rgcl_graph):
         super().__init__(cfg)
 
         self.cfg = cfg
         self.rgcl_graph = rgcl_graph
+        self.dgl_graph = rgcl_graph["dgl_graph"]
 
         self.num_users = int(cfg.stats.num_users)
         self.num_items = int(cfg.stats.num_items)
@@ -136,6 +211,7 @@ class RGCL(BaseModel):
             review_dim=self.review_dim,
             hidden_dim=self.hidden_dim,
             dropout=self.dropout,
+            rating_values=rgcl_graph["rating_values"],
         )
 
         self.pair_proj = nn.Sequential(
@@ -145,12 +221,10 @@ class RGCL(BaseModel):
         )
 
         self.rating_predictor = nn.Linear(self.hidden_dim, 1)
-
         self.review_proj = nn.Linear(self.review_dim, self.hidden_dim)
 
         self.edge_contrast = ContrastLoss(self.hidden_dim)
         self.node_contrast = ContrastLoss(self.hidden_dim)
-
         self.rating_loss_fn = nn.MSELoss()
 
         self.user_bias = nn.Embedding(self.num_users, 1)
@@ -170,21 +244,11 @@ class RGCL(BaseModel):
                     nn.init.zeros_(m.bias)
 
     def set_graph_device(self, device):
-        for key in ["users", "items", "ratings", "review_feat"]:
-            self.rgcl_graph[key] = self.rgcl_graph[key].to(device)
-
-        for rating in self.rgcl_graph["rating_values"]:
-            users, items = self.rgcl_graph["edge_index_by_rating"][rating]
-            self.rgcl_graph["edge_index_by_rating"][rating] = (
-                users.to(device),
-                items.to(device),
-            )
-            self.rgcl_graph["edge_review_by_rating"][rating] = (
-                self.rgcl_graph["edge_review_by_rating"][rating].to(device)
-            )
+        self.dgl_graph = self.dgl_graph.to(device)
+        self.rgcl_graph["dgl_graph"] = self.dgl_graph
 
     def encode(self):
-        return self.encoder(self.rgcl_graph)
+        return self.encoder(self.dgl_graph)
 
     def make_pair_repr(self, user_emb, item_emb, user_id, item_id):
         u = user_emb[user_id]
