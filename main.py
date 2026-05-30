@@ -64,10 +64,11 @@ def main(cfg: DictConfig) -> None:
         model = MODEL_DICT[model_name](cfg,word_emb).to(device)
 
     elif model_name in [
-        "mymodel"
+        "mymodel",
+        "rgcl"
     ]:
-        train_loader, valid_loader, test_loader, norm_adj = get_dataloader(cfg)
-        model = MODEL_DICT[model_name](cfg, norm_adj).to(device)
+        train_loader, valid_loader, test_loader, graph_obj = get_dataloader(cfg)
+        model = MODEL_DICT[model_name](cfg, graph_obj).to(device)
     else:
         train_loader, valid_loader, test_loader = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg).to(device)

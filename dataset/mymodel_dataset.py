@@ -34,7 +34,7 @@ class MyModelDataset(Dataset):
                 )
             history_df = df
 
-          # 원본 index를 보존해야 train에서 현재 row를 정확히 제외할 수 있음
+        # 원본 index를 보존해야 train에서 현재 row를 정확히 제외할 수 있음
         target_df = df.copy()
         target_df["_target_row_id"] = target_df.index
         target_df = target_df.reset_index(drop=True)
@@ -85,14 +85,12 @@ class MyModelDataset(Dataset):
             target_df=target_df,
             history_df=history_df,
             group_col="user_id",
-            exclude_current=exclude_current,
         )
 
         self.item_review = self._get_group_mean_embedding(
             target_df=target_df,
             history_df=history_df,
             group_col="item_id",
-            exclude_current=exclude_current,
         )
 
 
@@ -138,7 +136,6 @@ class MyModelDataset(Dataset):
         target_df: pd.DataFrame,
         history_df: pd.DataFrame,
         group_col: str,
-        exclude_current: bool,
     ):
         history_emb = self.history_review_embedding.detach().cpu().numpy()
         emb_dim = history_emb.shape[1]
@@ -158,17 +155,6 @@ class MyModelDataset(Dataset):
                 continue
 
             row_indices = np.asarray(group_to_indices[group_id], dtype=np.int64)
-
-            # train에서 현재 interaction review embedding 제외
-            if exclude_current:
-                target_row_id = row["_target_row_id"]
-
-                history_row_ids = history_df.iloc[row_indices][
-                    "_history_row_id"
-                ].to_numpy()
-
-                keep_mask = history_row_ids != target_row_id
-                row_indices = row_indices[keep_mask]
 
             # leave-one-out 후 남는 history가 없는 경우
             if len(row_indices) == 0:

@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from dataset import DATASET_DICT
 from sklearn.model_selection import train_test_split
 from utils.graph import build_lightgcn_norm_adj
+from utils.graph import build_rgcl_graph
 
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
 
@@ -284,6 +285,43 @@ def get_dataloader(cfg: DictConfig):
         )
 
         return train_dataloader, valid_dataloader, test_dataloader, norm_adj
+    elif model_name in ["rgcl"]:
+        interactions["review_text"] = clean_review(cfg, interactions["review_text"])
+
+        train_df, valid_df, test_df = split_by_ratio(
+            interactions,
+            train_ratio=cfg.data.split.train_ratio,
+            valid_ratio=cfg.data.split.valid_ratio,
+            random_state=cfg.experiment.seed,
+        )
+
+        train_dataset = dataset_cls(train_df, cfg, split="train")
+        valid_dataset = dataset_cls(valid_df, cfg, split="valid")
+        test_dataset = dataset_cls(test_df, cfg, split="test")
+
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=cfg.training.batch,
+            shuffle=True,
+        )
+        valid_dataloader = DataLoader(
+            valid_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
+
+        rgcl_graph = build_rgcl_graph(
+            train_df=train_df,
+            num_users=cfg.stats.num_users,
+            num_items=cfg.stats.num_items,
+        )
+
+        return train_dataloader, valid_dataloader, test_dataloader, rgcl_graph
     else:        
         train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
 
