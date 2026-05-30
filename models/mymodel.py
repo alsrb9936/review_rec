@@ -17,7 +17,7 @@ class RatingGraphEncoder(nn.Module):
 
         self.user_embedding = nn.Embedding(self.num_users, self.d_id)
         self.item_embedding = nn.Embedding(self.num_items, self.d_id)
-        self.register_buffer("norm_adj", norm_adj.coalesce())
+        self.register_buffer("norm_adj", norm_adj.coalesce(), persistent=False)
         self._init_weights()
 
     def _init_weights(self):
@@ -75,8 +75,6 @@ class MyModel(BaseModel):
 
         self.eps = float(cfg.model.get("eps", 1e-8))
         self.subspace_rank = int(cfg.model.get("subspace_rank", 4))
-        self.lambda_align = float(cfg.model.get("lambda_align", 0.0))
-        self.lambda_orth = float(cfg.model.get("lambda_orth", 0.0))
         self.align_tau = float(cfg.model.get("align_tau", 0.1))
         self.review_scale_init = float(cfg.model.get("review_scale_init", 0.1))
         self.min_rating = float(cfg.data.get("min_rating", 1.0))
@@ -191,82 +189,13 @@ class MyModel(BaseModel):
         )
         return self.review_pair_layer(review_features)
 
-    # def _make_basis(self, c_ui):
-    #     # if not torch.isfinite(c_ui).all():
-    #     #     bad = (~torch.isfinite(c_ui)).nonzero()[:10]
-    #     #     raise RuntimeError(f"c_ui has NaN/Inf: {bad}")
-    #     bsz = c_ui.size(0)
-    #     raw_basis = self.basis_layer(c_ui).view(bsz, self.d_text, self.subspace_rank)
-    #     # if not torch.isfinite(raw_basis).all():
-    #     #     bad = (~torch.isfinite(raw_basis)).nonzero()[:10]
-    #     #     raise RuntimeError(f"raw_basis has NaN/Inf: {bad}")
-    #     q_basis, _ = torch.linalg.qr(raw_basis, mode="reduced")
-    #     return q_basis
-    # def _make_basis(self, c_ui):
-    #     bsz = c_ui.size(0)
-    #     raw_basis = self.basis_layer(c_ui).reshape(
-    #         bsz, self.d_text, self.subspace_rank
-    #     )
-
-    #     raw_basis = torch.nan_to_num(
-    #         raw_basis,
-    #         nan=0.0,
-    #         posinf=1e4,
-    #         neginf=-1e4,
-    #     )
-
-    #     q_basis, _ = torch.linalg.qr(raw_basis.cpu(), mode="reduced")
-    #     return q_basis.to(raw_basis.device)
     def _make_basis(self, c_ui):
         bsz = c_ui.size(0)
-
-        raw_basis = self.basis_layer(c_ui).reshape(
-            bsz, self.d_text, self.subspace_rank
-        )
-
-        raw_basis = torch.nan_to_num(
-            raw_basis,
-            nan=0.0,
-            posinf=1e4,
-            neginf=-1e4,
-        )
-
-        cols = []
-        threshold = 1e-6
-
-        for k in range(self.subspace_rank):
-            v = raw_basis[:, :, k]
-
-            # Modified Gram-Schmidt, two passes for stability
-            for _ in range(2):
-                for q in cols:
-                    v = v - (v * q).sum(dim=-1, keepdim=True) * q
-
-            norm = v.norm(dim=-1, keepdim=True)
-            v_normed = v / norm.clamp_min(self.eps)
-
-            # fallback for degenerate column
-            fallback_idx = min(k, self.d_text - 1)
-            fallback = F.one_hot(
-                torch.full(
-                    (bsz,),
-                    fallback_idx,
-                    device=c_ui.device,
-                    dtype=torch.long,
-                ),
-                num_classes=self.d_text,
-            ).to(dtype=raw_basis.dtype)
-
-            for q in cols:
-                fallback = fallback - (fallback * q).sum(dim=-1, keepdim=True) * q
-
-            fallback = fallback / fallback.norm(dim=-1, keepdim=True).clamp_min(self.eps)
-
-            q_new = torch.where(norm > threshold, v_normed, fallback)
-            cols.append(q_new)
-
-        q_basis = torch.stack(cols, dim=-1)
+        raw_basis = self.basis_layer(c_ui).view(bsz, self.d_text, self.subspace_rank)
+        q_basis, _ = torch.linalg.qr(raw_basis, mode="reduced")
         return q_basis
+    
+    
     def _orthogonal_decompose(self, z_review, c_ui):
         q_basis = self._make_basis(c_ui)
         coeff = torch.bmm(q_basis.transpose(1, 2), z_review.unsqueeze(-1))
@@ -354,20 +283,5 @@ class MyModel(BaseModel):
         pred = outputs["rating_pred"]
         rating_loss = self.loss_fn(pred, rating)
         loss = rating_loss
-
-        if self.lambda_align > 0.0:
-            shared_ratio = outputs["shared_ratio"]
-            align_weight = self._rating_alignment_weight(rating)
-            align_loss = (align_weight * (1.0 - shared_ratio).pow(2)).mean()
-            loss = loss + self.lambda_align * align_loss
-
-        if self.lambda_orth > 0.0:
-            orth_loss = F.cosine_similarity(
-                outputs["z_shared"],
-                outputs["z_residual"],
-                dim=-1,
-                eps=self.eps,
-            ).pow(2).mean()
-            loss = loss + self.lambda_orth * orth_loss
 
         return loss

@@ -9,8 +9,4 @@ DATASET_DICT = {
     "deepconn": DeepCoNNDataset,
     "narre": NARREDataset,
     "mymodel": MyModelDataset,
-    "mymodel_cfonly": MyModelDataset,
-    "mymodel_concat": MyModelDataset,
-    "mymodel_shared": MyModelDataset,
-    "mymodel_full": MyModelDataset,
 }

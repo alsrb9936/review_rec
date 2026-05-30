@@ -64,11 +64,7 @@ def main(cfg: DictConfig) -> None:
         model = MODEL_DICT[model_name](cfg,word_emb).to(device)
 
     elif model_name in [
-        "mymodel",
-        "mymodel_cfonly",
-        "mymodel_concat",
-        "mymodel_shared",
-        "mymodel_full",
+        "mymodel"
     ]:
         train_loader, valid_loader, test_loader, norm_adj = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg, norm_adj).to(device)
@@ -78,7 +74,6 @@ def main(cfg: DictConfig) -> None:
     print(
         f"Loaded interactions "
         f"(train={_dataset_size(train_loader)}, valid={_dataset_size(valid_loader)}, test={_dataset_size(test_loader)}) "
-        f"with columns={list(load_interaction_data(cfg).columns)}"
     )
 
     print(f"Created dataloaders for model='{cfg.model_name}'")

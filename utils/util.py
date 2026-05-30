@@ -247,10 +247,6 @@ def get_dataloader(cfg: DictConfig):
     
     elif model_name in [
         "mymodel",
-        "mymodel_cfonly",
-        "mymodel_concat",
-        "mymodel_shared",
-        "mymodel_full",
     ]:
         interactions["review_text"] = clean_review(cfg, interactions["review_text"])
 
