@@ -154,7 +154,7 @@ class RGCL(BaseModel):
 
         self.cfg = cfg
         self.rgcl_graph = rgcl_graph
-        self.dgl_graph = rgcl_graph["dgl_graph"]
+        self.dgl_graph = rgcl_graph["dgl_graph"].to(cfg.experiment.device)
 
         self.num_users = int(cfg.stats.num_users)
         self.num_items = int(cfg.stats.num_items)
