@@ -80,14 +80,12 @@ class MyModel(BaseModel):
         self.graph_encoder = RatingGraphEncoder(self.num_users, self.num_items, norm_adj, self.d_id, self.num_layers)
         self.user_review_encoder = ReviewProjectionEncoder(self.input_dim, self.d_text, self.dropout)
         self.item_review_encoder = ReviewProjectionEncoder(self.input_dim, self.d_text, self.dropout)
-        self.user_shared_layer = nn.Sequential(nn.Linear(self.d_text, self.d_text), nn.LayerNorm(self.d_text), nn.GELU(), nn.Dropout(self.dropout))
-        self.item_shared_layer = nn.Sequential(nn.Linear(self.d_text, self.d_text), nn.LayerNorm(self.d_text), nn.GELU(), nn.Dropout(self.dropout))
         self.cf_feature_dim = self.d_id * 4
         self.cf_pair_layer = nn.Sequential(nn.Linear(self.cf_feature_dim, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, self.d_text), nn.LayerNorm(self.d_text))
-        self.cf_predict_layer = nn.Sequential(nn.Linear(self.cf_feature_dim, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, 1))
+        self.cf_predict_layer = nn.Sequential(nn.Linear(self.d_text, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, 1))
         self.review_pair_layer = nn.Sequential(nn.Linear(self.d_text * 2, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, self.d_text), nn.LayerNorm(self.d_text))
         self.basis_layer = nn.Linear(self.d_text, self.d_text * self.subspace_rank)
-        self.review_predict_layer = nn.Sequential(nn.Linear(self.d_text * 2, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, 1))
+        self.review_predict_layer = nn.Sequential(nn.Linear(self.d_text, self.d_model), nn.ReLU(), nn.Dropout(self.dropout), nn.Linear(self.d_model, 1))
         init = torch.tensor(self.alpha_init, dtype=torch.float32).clamp(self.eps, 1.0 - self.eps)
         self.alpha_logit = nn.Parameter(torch.logit(init))
         self.user_bias = nn.Embedding(self.num_users, 1)
@@ -107,8 +105,6 @@ class MyModel(BaseModel):
         nn.init.zeros_(self.user_bias.weight)
         nn.init.zeros_(self.item_bias.weight)
         nn.init.zeros_(self.global_bias)
-        self._init_linear_block(self.user_shared_layer)
-        self._init_linear_block(self.item_shared_layer)
         self._init_linear_block(self.cf_pair_layer)
         self._init_linear_block(self.cf_predict_layer)
         self._init_linear_block(self.review_pair_layer)
@@ -125,10 +121,8 @@ class MyModel(BaseModel):
             raise ValueError("user_review and item_review must have shape [B, D].")
         user_text = self.user_review_encoder(user_review)
         item_text = self.item_review_encoder(item_review)
-        user_side = self.user_shared_layer(user_text)
-        item_side = self.item_shared_layer(item_text)
-        z_review = self.review_pair_layer(torch.cat([user_side, item_side], dim=-1))
-        return user_text, item_text, user_side, item_side, z_review
+        z_review = self.review_pair_layer(torch.cat([user_text, item_text], dim=-1))
+        return user_text, item_text, z_review
 
     def _make_basis(self, c_ui):
         bsz = c_ui.size(0)
@@ -163,10 +157,10 @@ class MyModel(BaseModel):
         user_cf, item_cf = self.graph_encoder(user_id, item_id)
         cf_features = self._cf_features(user_cf, item_cf)
         c_ui = self.cf_pair_layer(cf_features)
-        cf_signal = self.cf_predict_layer(cf_features).squeeze(-1)
-        user_text, item_text, user_side, item_side, z_review = self._review_pair(user_review, item_review)
+        cf_signal = self.cf_predict_layer(c_ui).squeeze(-1)
+        user_text, item_text, z_review = self._review_pair(user_review, item_review)
         z_shared, z_residual, shared_ratio, residual_ratio = self._decompose_review(z_review, c_ui)
-        review_signal = self.review_predict_layer(torch.cat([z_shared, c_ui], dim=-1)).squeeze(-1)
+        review_signal = self.review_predict_layer(z_shared).squeeze(-1)
         bias = self.user_bias(user_id).squeeze(-1) + self.item_bias(item_id).squeeze(-1) + self.global_bias
         alpha = torch.sigmoid(self.alpha_logit)
         rating_pred = alpha * cf_signal + (1.0 - alpha) * review_signal + bias
@@ -180,8 +174,6 @@ class MyModel(BaseModel):
                 "c_ui": c_ui,
                 "user_text": user_text,
                 "item_text": item_text,
-                "user_shared": user_side,
-                "item_shared": item_side,
                 "z_review": z_review,
                 "z_shared": z_shared,
                 "z_residual": z_residual,
