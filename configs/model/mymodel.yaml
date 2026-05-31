@@ -7,11 +7,9 @@ model:
   d_text: 128
   dropout: 0.2
   num_layers: 3
-  subspace_rank: 4
-  review_scale_init: 0.1
-  lambda_align: 0.0
-  lambda_orth: 0.0
-  align_tau: 0.1
+  lambda_align: 0.1
+  contrast_tau: 0.2
+  alpha_init: 0.5
   eps: 1e-8
 
 training:
