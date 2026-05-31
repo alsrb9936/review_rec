@@ -6,7 +6,7 @@ model:
   mf_embedding_size: 64
   mlp_embedding_size: 64
   mlp_hidden_size: [64, 32]
-  dropout: 0.3
+  dropout: 0.5
 
 data:
   load_review_text: false

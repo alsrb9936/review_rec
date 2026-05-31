@@ -13,30 +13,55 @@ class DeepCoNNDataset(Dataset):
         cfg: DictConfig,
         word_dict: dict,
         split: str = "train",
+        history_df: Optional[pd.DataFrame] = None,
     ):
         super().__init__()
         self.word_dict = word_dict
         self.review_length = int(cfg.data.review_length)
         self.review_count = int(cfg.data.review_count)
         self.pad_id = int(cfg.data.pad_id)
-        self.lowest_r_count = int(cfg.data.lowest_review_count)  # 특정 user/item이 작성한 최소 리뷰 개수
-        self.retain_rui = False  # train에서는 user와 item의 공통 리뷰를 유지, valid/test에서는 제거 
+        self.lowest_r_count = int(cfg.data.lowest_review_count)
+
+        self.retain_rui = False
         if split == "train":
-            self.retain_rui = bool(cfg.data.retain_rui) # 최종 샘플에서 user와 item의 공통 review를 유지할지 여부
+            self.retain_rui = bool(cfg.data.retain_rui)
 
-        df["review_text"] = df["review_text"].apply(self._review2id) # 토큰화 후 숫자 ID로 변환
-        self.sparse_idx = set()  # 희소한 샘플의 인덱스를 임시 저장하고, 마지막에 제거
+        target_df = df.copy().reset_index(drop=True)
 
-        user_reviews = self._get_reviews(df)  # 각 user의 리뷰 리스트 수집
-        item_reviews = self._get_reviews(df, 'user_id', 'item_id') # 각 item의 리뷰 리스트 수집
-        self.user_ids = torch.tensor(df["user_id"].values, dtype=torch.long)
-        self.item_ids = torch.tensor(df["item_id"].values, dtype=torch.long)
-        rating = torch.Tensor(df['rating'].to_list()).view(-1, 1)
+        if history_df is None:
+            history_df = df
+        history_df = history_df.copy().reset_index(drop=True)
 
+        target_df["review_text"] = target_df["review_text"].apply(self._review2id)
+        history_df["review_text"] = history_df["review_text"].apply(self._review2id)
 
-        self.user_reviews = user_reviews[[idx for idx in range(user_reviews.shape[0]) if idx not in self.sparse_idx]]
-        self.item_reviews = item_reviews[[idx for idx in range(item_reviews.shape[0]) if idx not in self.sparse_idx]]
-        self.ratings = rating[[idx for idx in range(rating.shape[0]) if idx not in self.sparse_idx]]
+        self.sparse_idx = set()
+
+        user_reviews = self._get_reviews(
+            target_df=target_df,
+            history_df=history_df,
+            lead="user_id",
+            costar="item_id",
+        )
+
+        item_reviews = self._get_reviews(
+            target_df=target_df,
+            history_df=history_df,
+            lead="item_id",
+            costar="user_id",
+        )
+
+        user_ids = torch.tensor(target_df["user_id"].values, dtype=torch.long)
+        item_ids = torch.tensor(target_df["item_id"].values, dtype=torch.long)
+        ratings = torch.tensor(target_df["rating"].values, dtype=torch.float32).view(-1, 1)
+
+        keep_idx = [idx for idx in range(len(target_df)) if idx not in self.sparse_idx]
+
+        self.user_ids = user_ids[keep_idx]
+        self.item_ids = item_ids[keep_idx]
+        self.user_reviews = user_reviews[keep_idx]
+        self.item_reviews = item_reviews[keep_idx]
+        self.ratings = ratings[keep_idx]
 
     def __getitem__(self, idx):
         return {
@@ -49,35 +74,60 @@ class DeepCoNNDataset(Dataset):
 
     def __len__(self):
         return self.ratings.shape[0]
-    
-    def _get_reviews(self, df, lead='user_id', costar='item_id'):
-        # 각 학습 데이터에 대해 해당 사용자/아이템의 모든 리뷰를 모아서 생성
-        reviews_by_lead = dict(list(df[[costar, 'review_text']].groupby(df[lead])))  # 각 user/item별 리뷰 모음
+
+    def _get_reviews(self, target_df, history_df, lead="user_id", costar="item_id"):
+        reviews_by_lead = {
+            lead_id: group[[costar, "review_text"]]
+            for lead_id, group in history_df.groupby(lead)
+        }
+
         lead_reviews = []
-        for idx, (lead_id, costar_id) in enumerate(zip(df[lead], df[costar])):
-            df_data = reviews_by_lead[lead_id]  # lead에 해당하는 모든 리뷰를 가져옴: DataFrame
-            if self.retain_rui:
-                reviews = df_data['review_text'].to_list()  # lead의 모든 리뷰를 가져옴: 리스트
+
+        for idx, (lead_id, costar_id) in enumerate(zip(target_df[lead], target_df[costar])):
+            group = reviews_by_lead.get(lead_id)
+
+            if group is None:
+                reviews = []
+            elif self.retain_rui:
+                reviews = group["review_text"].to_list()
             else:
-                reviews = df_data['review_text'][df_data[costar] != costar_id].to_list()  # lead와 costar가 함께 등장한 현재 리뷰는 제외
+                reviews = group.loc[group[costar] != costar_id, "review_text"].to_list()
+
             if len(reviews) < self.lowest_r_count:
                 self.sparse_idx.add(idx)
-            reviews = self._adjust_review_list(reviews, self.review_length, self.review_count)
+
+            reviews = self._adjust_review_list(
+                reviews,
+                self.review_length,
+                self.review_count,
+            )
             lead_reviews.append(reviews)
+
         return torch.LongTensor(lead_reviews)
 
     def _adjust_review_list(self, reviews, r_length, r_count):
-        reviews = reviews[:r_count] + [[self.pad_id] * r_length] * (r_count - len(reviews))  # 리뷰 개수를 고정
-        reviews = [r[:r_length] + [0] * (r_length - len(r)) for r in reviews]  # 각 리뷰의 길이를 고정
-        return reviews
+        reviews = reviews[:r_count]
 
-    def _review2id(self, review):  # 하나의 리뷰 문자열을 단어 단위로 나누고 숫자 ID로 변환
+        pad_review = [self.pad_id] * r_length
+        while len(reviews) < r_count:
+            reviews.append(pad_review)
+
+        fixed_reviews = []
+        for review in reviews:
+            review = review[:r_length]
+            review = review + [self.pad_id] * (r_length - len(review))
+            fixed_reviews.append(review)
+
+        return fixed_reviews
+
+    def _review2id(self, review):
         if not isinstance(review, str):
-            return []  # pandas 관련 문제로 보이며, 빈 문자열로 읽힌 리뷰가 float 타입이 되는 경우가 있음
+            return []
+
         wids = []
         for word in review.split():
             if word in self.word_dict:
-                wids.append(self.word_dict[word])  # 단어를 숫자 ID로 매핑
+                wids.append(self.word_dict[word])
             else:
                 wids.append(self.pad_id)
         return wids

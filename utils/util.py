@@ -236,13 +236,43 @@ def get_dataloader(cfg: DictConfig):
         elif cfg.data.word_embedding_type == "google":
             word_emb, word_dict = google_load_embedding(cfg)
 
-        train_dataset = dataset_cls(train_df, cfg, word_dict, split="train")
-        valid_dataset = dataset_cls(valid_df, cfg, word_dict, split="valid")
-        test_dataset = dataset_cls(test_df, cfg, word_dict, split="test")
-
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
-        test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        train_dataset = dataset_cls(
+            train_df,
+            cfg,
+            word_dict,
+            split="train",
+            history_df=train_df,
+        )
+        valid_dataset = dataset_cls(
+            valid_df,
+            cfg,
+            word_dict,
+            split="valid",
+            history_df=train_df,
+        )
+        test_dataset = dataset_cls(
+            test_df,
+            cfg,
+            word_dict,
+            split="test",
+            history_df=train_df,
+        )
+        
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=cfg.training.batch,
+            shuffle=True,
+        )
+        valid_dataloader = DataLoader(
+            valid_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=cfg.training.eval_batch,
+            shuffle=False,
+        )
 
         return train_dataloader, valid_dataloader, test_dataloader, word_emb, word_dict
     

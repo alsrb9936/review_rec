@@ -19,10 +19,10 @@ model:
   hidden_dim: 50
   num_filters: 100
   kernel_size: 3
-  dropout: 0.3
+  dropout: 0.5
 
 training:
-  batch: 128
+  batch: 256
   eval_batch: 256
   epoch: 600
   lr: 0.002

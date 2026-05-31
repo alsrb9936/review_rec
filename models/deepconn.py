@@ -64,7 +64,7 @@ class DeepCoNN(nn.Module):
         self.cnn_u = CNN(cfg, word_dim=self.embedding.embedding_dim)
         self.cnn_i = CNN(cfg, word_dim=self.embedding.embedding_dim)
         self.fm = FactorizationMachine(cfg.model.hidden_dim * 2, 10)
-        self.lossfn = nn.MSELoss(reduction='sum')
+        self.lossfn = nn.MSELoss()
 
     def forward(self, user_review, item_review):  # input shape(batch_size, review_count, review_length)
         new_batch_size = user_review.shape[0] * user_review.shape[1]

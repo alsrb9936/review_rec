@@ -3,16 +3,17 @@ model_name: rgcl
 
 model:
   hidden_dim: 64
-  dropout: 0.3
-  lambda_ed: 0.1
-  lambda_nd: 0.1
+  dropout: 0.5
+  lambda_ed: 0.8
+  lambda_nd: 0.6
+
 
 training:
-  batch: 256
+  batch: 128
   eval_batch: 512
   epoch: 100
   lr: 0.001
-  weight_decay: 1e-5
+  weight_decay: 1e-6
   lr_decay: 0.99
   optimizer: Adam
 

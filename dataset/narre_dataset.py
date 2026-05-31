@@ -14,10 +14,15 @@ import pandas as pd
 
 
 class NARREDataset(Dataset):
-    def __init__(self, df, cfg, word_dict, split="train"):
+    def __init__(self, df, cfg, word_dict, split="train", history_df=None):
         super().__init__()
 
         self.df = df.copy().reset_index(drop=True)
+
+        if history_df is None:
+            history_df = df
+        self.history_df = history_df.copy().reset_index(drop=True)
+
         self.word_dict = word_dict
 
         self.review_length = int(cfg.data.review_length)
@@ -28,23 +33,25 @@ class NARREDataset(Dataset):
         self.pad_item_id = int(cfg.stats.num_items)
         self.lowest_r_count = int(cfg.data.lowest_review_count)
 
-        # valid/test에서는 현재 예측 대상 user-item pair의 review 제거 권장
         self.retain_rui = False
         if split == "train":
             self.retain_rui = bool(cfg.data.retain_rui)
 
         self.df["review_text"] = self.df["review_text"].apply(self._review2id)
+        self.history_df["review_text"] = self.history_df["review_text"].apply(self._review2id)
 
         self.sparse_idx = set()
 
         self.user_reviews, self.user_review_item_ids = self._get_reviews_and_ids(
-            self.df,
+            target_df=self.df,
+            history_df=self.history_df,
             lead="user_id",
             costar="item_id",
         )
 
         self.item_reviews, self.item_review_user_ids = self._get_reviews_and_ids(
-            self.df,
+            target_df=self.df,
+            history_df=self.history_df,
             lead="item_id",
             costar="user_id",
         )
@@ -81,8 +88,11 @@ class NARREDataset(Dataset):
             "item_review_user_ids": self.item_review_user_ids[idx],
         }
 
-    def _get_reviews_and_ids(self, df, lead, costar):
-        reviews_by_lead = dict(list(df[[costar, "review_text"]].groupby(df[lead])))
+    def _get_reviews_and_ids(self, target_df, history_df, lead, costar):
+        reviews_by_lead = {
+            lead_id: group[[costar, "review_text"]]
+            for lead_id, group in history_df.groupby(lead)
+        }
 
         if costar == "item_id":
             pad_costar_id = self.pad_item_id
@@ -94,10 +104,13 @@ class NARREDataset(Dataset):
         all_reviews = []
         all_costar_ids = []
 
-        for idx, (lead_id, costar_id) in enumerate(zip(df[lead], df[costar])):
-            group = reviews_by_lead[lead_id]
+        for idx, (lead_id, costar_id) in enumerate(zip(target_df[lead], target_df[costar])):
+            group = reviews_by_lead.get(lead_id)
 
-            if self.retain_rui:
+            if group is None:
+                reviews = []
+                costar_ids = []
+            elif self.retain_rui:
                 reviews = group["review_text"].to_list()
                 costar_ids = group[costar].to_list()
             else:
