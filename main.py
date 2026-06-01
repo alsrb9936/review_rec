@@ -65,7 +65,10 @@ def main(cfg: DictConfig) -> None:
 
     elif model_name in [
         "mymodel",
-        "rgcl"
+        "rgcl",
+        "mymodel_cfonly",
+        "mymodel_neumf",
+        "mymodel_v2",
     ]:
         train_loader, valid_loader, test_loader, graph_obj = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg, graph_obj).to(device)

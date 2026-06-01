@@ -40,8 +40,6 @@ class NARREDataset(Dataset):
         self.df["review_text"] = self.df["review_text"].apply(self._review2id)
         self.history_df["review_text"] = self.history_df["review_text"].apply(self._review2id)
 
-        self.sparse_idx = set()
-
         self.user_reviews, self.user_review_item_ids = self._get_reviews_and_ids(
             target_df=self.df,
             history_df=self.history_df,
@@ -56,21 +54,9 @@ class NARREDataset(Dataset):
             costar="user_id",
         )
 
-        user_ids = torch.tensor(self.df["user_id"].values, dtype=torch.long)
-        item_ids = torch.tensor(self.df["item_id"].values, dtype=torch.long)
-        ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32).view(-1, 1)
-
-        keep_idx = [idx for idx in range(len(self.df)) if idx not in self.sparse_idx]
-
-        self.user_ids = user_ids[keep_idx]
-        self.item_ids = item_ids[keep_idx]
-        self.ratings = ratings[keep_idx]
-
-        self.user_reviews = self.user_reviews[keep_idx]
-        self.user_review_item_ids = self.user_review_item_ids[keep_idx]
-
-        self.item_reviews = self.item_reviews[keep_idx]
-        self.item_review_user_ids = self.item_review_user_ids[keep_idx]
+        self.user_ids = torch.tensor(self.df["user_id"].values, dtype=torch.long)
+        self.item_ids = torch.tensor(self.df["item_id"].values, dtype=torch.long)
+        self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32).view(-1, 1)
 
     def __len__(self):
         return self.ratings.shape[0]
@@ -118,8 +104,6 @@ class NARREDataset(Dataset):
                 reviews = filtered["review_text"].to_list()
                 costar_ids = filtered[costar].to_list()
 
-            if len(reviews) < self.lowest_r_count:
-                self.sparse_idx.add(idx)
 
             reviews, costar_ids = self._adjust_review_list_and_ids(
                 reviews,

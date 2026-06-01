@@ -11,4 +11,7 @@ MODEL_TRAINER_DICT = {
     "narre": NARRETrainer,
     "mymodel": MyModelTrainer,
     "rgcl": RGCLTrainer,
+    "mymodel_cfonly": MyModelTrainer,
+    "mymodel_neumf": MyModelTrainer,
+    "mymodel_v2": MyModelTrainer,
 }

@@ -2,31 +2,37 @@
 model_name: mymodel
 
 model:
-  d_id: 128
+  # Graph/CF representation dimension.
+  d_id: 64
+
+  # Hidden dimension used inside prediction/projection MLPs.
   d_model: 64
+
+  # Review-side representation dimension after PLM embedding projection.
   d_text: 128
-  dropout: 0.6
+
+  # Pair representation dimension for cf_pair and review_pair.
+  # Keeping this equal to d_text is simple and stable.
+  d_pair: 128
+
+  dropout: 0.5
   num_layers: 2
 
   # CF-conditioned subspace dimension for each user/item review representation.
+  # Must satisfy 1 <= subspace_rank <= d_text.
   subspace_rank: 4
 
-  # Main pair-level selective alignment:
-  # z_shared_pair = user_shared * item_shared  <->  c_ui
-  lambda_align: 0.1
-  contrast_tau: 0.2
+  # Main pair-level contrastive alignment:
+  # review_pair <-> cf_pair
+  # Recommended first setting: 0.01 ~ 0.05.
+  lambda_pair_align: 0
 
   # Optional side-level alignment:
   # user_shared <-> user_cf, item_shared <-> item_cf
-  # Keep 0.0 for the first main experiment.
-  lambda_side_align: 0.5
+  # Keep 0.0 for the first main experiment. Try 0.001 ~ 0.01 later.
+  lambda_side_align: 0
 
-
-  # review_signal = dot(user_shared, item_shared) / review_score_scale
-  # sqrt(128) ≈ 11.3137. This stabilizes the initial dot-product scale.
-  review_score_scale: 11.3137
-
-  alpha_init: 0.5
+  contrast_tau: 0.2
   eps: 1e-8
 
 training:

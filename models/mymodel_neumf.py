@@ -10,35 +10,47 @@ import numpy as np
 class RatingGraphEncoder(nn.Module):
     def __init__(self, num_users, num_items, norm_adj, d_id=64, num_layers=2):
         super().__init__()
-        self.num_users = int(num_users)
-        self.num_items = int(num_items)
-        self.d_id = int(d_id)
-        self.num_layers = int(num_layers)
+        mf_embedding_size = 64
+        mlp_embedding_size = 64
+        mlp_hidden_size = [64, 32]
+        dropout = 0.3
+        self.user_mlp_embedding = nn.Embedding(num_users, mlp_embedding_size)
+        self.item_mlp_embedding = nn.Embedding(num_items, mlp_embedding_size)
 
-        self.user_embedding = nn.Embedding(self.num_users, self.d_id)
-        self.item_embedding = nn.Embedding(self.num_items, self.d_id)
-        self.register_buffer("norm_adj", norm_adj.coalesce(), persistent=False)
+        self.embedding_dropout = nn.Dropout(p=dropout)
 
+        mlp_layers = []
+        input_dim = mlp_embedding_size * 2
+        for hidden_dim in mlp_hidden_size:
+            mlp_layers.append(nn.Linear(input_dim, hidden_dim))
+            mlp_layers.append(nn.ReLU())
+            mlp_layers.append(nn.Dropout(p=dropout))
+            input_dim = hidden_dim
+        self.mlp_layers = nn.Sequential(*mlp_layers)
+
+        mlp_output_dim = input_dim
+        self.predict_layer = nn.Linear(mf_embedding_size + mlp_output_dim, 1)
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.xavier_uniform_(self.user_embedding.weight)
-        nn.init.xavier_uniform_(self.item_embedding.weight)
+        nn.init.xavier_normal_(self.user_mlp_embedding.weight)
+        nn.init.xavier_normal_(self.item_mlp_embedding.weight)
 
-    def get_all_embeddings(self):
-        x = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)
-        outs = [x]
+        for module in self.mlp_layers:
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_normal_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        nn.init.xavier_normal_(self.predict_layer.weight)
+        if self.predict_layer.bias is not None:
+            nn.init.zeros_(self.predict_layer.bias)
 
-        for _ in range(self.num_layers):
-            x = torch.sparse.mm(self.norm_adj, x)
-            outs.append(x)
+    def forward(self, user_id, item_id):
 
-        all_emb = torch.stack(outs, dim=0).mean(dim=0)
-        return all_emb[: self.num_users], all_emb[self.num_users :]
+        user_mlp_e = self.embedding_dropout(self.user_mlp_embedding(user_id))
+        item_mlp_e = self.embedding_dropout(self.item_mlp_embedding(item_id))
 
-    def forward(self, user_ids, item_ids):
-        user_all, item_all = self.get_all_embeddings()
-        return user_all[user_ids], item_all[item_ids]
+        return user_mlp_e, item_mlp_e
 
 
 class ReviewProjectionEncoder(nn.Module):
@@ -63,7 +75,7 @@ class ReviewProjectionEncoder(nn.Module):
         return self.net(x)
 
 
-class MyModel(BaseModel):
+class MyModelNueMF(BaseModel):
     """Dual-side selective alignment with dot-product review scoring.
 
     Structure:
@@ -92,7 +104,13 @@ class MyModel(BaseModel):
         self.eps = float(cfg.model.get("eps", 1e-8))
         self.subspace_rank = int(cfg.model.get("subspace_rank", 4))
 
+        self.lambda_align = float(cfg.model.get("lambda_align", 0.1))
         self.lambda_side_align = float(cfg.model.get("lambda_side_align", 0.0))
+        self.lambda_energy = float(cfg.model.get("lambda_energy", 0.0))
+        self.lambda_var = float(cfg.model.get("lambda_var", 0.0))
+
+        self.min_shared_ratio = float(cfg.model.get("min_shared_ratio", 0.05))
+        self.max_shared_ratio = float(cfg.model.get("max_shared_ratio", 0.95))
 
         self.contrast_tau = float(cfg.model.get("contrast_tau", cfg.model.get("align_tau", 0.2)))
         self.alpha_init = float(cfg.model.get("alpha_init", 0.5))
@@ -231,6 +249,19 @@ class MyModel(BaseModel):
             + F.cross_entropy(logits.transpose(0, 1), labels)
         )
 
+    def _energy_ratio_loss(self, shared_ratio):
+        return (
+            F.relu(self.min_shared_ratio - shared_ratio).mean()
+            + F.relu(shared_ratio - self.max_shared_ratio).mean()
+        )
+
+    def _variance_loss(self, z):
+        if z.size(0) <= 1:
+            return z.new_tensor(0.0)
+
+        std = torch.sqrt(z.var(dim=0, unbiased=False) + self.eps)
+        return F.relu(1.0 - std).mean()
+
     def forward(self, user_id, item_id, user_review, item_review, return_dict=False):
         user_cf, item_cf = self.graph_encoder(user_id, item_id)
 
@@ -289,6 +320,22 @@ class MyModel(BaseModel):
                 "user_residual": user_residual,
                 "item_residual": item_residual,
 
+                # "z_shared_pair": z_shared_pair,
+                # "z_shared": z_shared_pair,
+
+                # "user_shared_ratio": user_shared_ratio.squeeze(-1),
+                # "item_shared_ratio": item_shared_ratio.squeeze(-1),
+                # "user_residual_ratio": user_residual_ratio.squeeze(-1),
+                # "item_residual_ratio": item_residual_ratio.squeeze(-1),
+
+                # "shared_ratio": 0.5 * (
+                #     user_shared_ratio.squeeze(-1)
+                #     + item_shared_ratio.squeeze(-1)
+                # ),
+                # "residual_ratio": 0.5 * (
+                #     user_residual_ratio.squeeze(-1)
+                #     + item_residual_ratio.squeeze(-1)
+                # ),
             }
 
         return rating_pred
@@ -303,6 +350,20 @@ class MyModel(BaseModel):
         )
 
         rating_loss = self.loss_fn(outputs["rating_pred"], rating)
+
+        # Main selective alignment:
+        # align only the pair signal formed from user/item shared components.
+        # align_loss = self._contrastive_loss(outputs["z_shared_pair"], outputs["c_ui"])
+
+        # side_align_loss = outputs["rating_pred"].new_tensor(0.0)
+        # if self.lambda_side_align > 0.0:
+            # user_cf_align = self.user_cf_align_layer(outputs["user_cf"])
+            # item_cf_align = self.item_cf_align_layer(outputs["item_cf"])
+
+            # side_align_loss = 0.5 * (
+            #     self._contrastive_loss(outputs["user_shared"], user_cf_align)
+            #     + self._contrastive_loss(outputs["item_shared"], item_cf_align)
+            # )
         user_cf_align = self.user_cf_align_layer(outputs["user_cf"])
         item_cf_align = self.item_cf_align_layer(outputs["item_cf"])
 
@@ -310,8 +371,26 @@ class MyModel(BaseModel):
             self._contrastive_loss(outputs["user_shared"], user_cf_align)
             + self._contrastive_loss(outputs["item_shared"], item_cf_align)
         )
+        # energy_loss = outputs["rating_pred"].new_tensor(0.0)
+        # if self.lambda_energy > 0.0:
+        #     energy_loss = 0.5 * (
+        #         self._energy_ratio_loss(outputs["user_shared_ratio"].unsqueeze(-1))
+        #         + self._energy_ratio_loss(outputs["item_shared_ratio"].unsqueeze(-1))
+        #     )
+
+        # var_loss = outputs["rating_pred"].new_tensor(0.0)
+        # if self.lambda_var > 0.0:
+        #     var_loss = 0.25 * (
+        #         self._variance_loss(outputs["user_shared"])
+        #         + self._variance_loss(outputs["item_shared"])
+        #         + self._variance_loss(outputs["user_residual"])
+        #         + self._variance_loss(outputs["item_residual"])
+        #     )
 
         return (
             rating_loss
+            # + self.lambda_align * align_loss
             + self.lambda_side_align * side_align_loss
+            # + self.lambda_energy * energy_loss
+            # + self.lambda_var * var_loss
         )

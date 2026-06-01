@@ -35,7 +35,6 @@ class DeepCoNNDataset(Dataset):
         target_df["review_text"] = target_df["review_text"].apply(self._review2id)
         history_df["review_text"] = history_df["review_text"].apply(self._review2id)
 
-        self.sparse_idx = set()
 
         user_reviews = self._get_reviews(
             target_df=target_df,
@@ -55,13 +54,7 @@ class DeepCoNNDataset(Dataset):
         item_ids = torch.tensor(target_df["item_id"].values, dtype=torch.long)
         ratings = torch.tensor(target_df["rating"].values, dtype=torch.float32).view(-1, 1)
 
-        keep_idx = [idx for idx in range(len(target_df)) if idx not in self.sparse_idx]
 
-        self.user_ids = user_ids[keep_idx]
-        self.item_ids = item_ids[keep_idx]
-        self.user_reviews = user_reviews[keep_idx]
-        self.item_reviews = item_reviews[keep_idx]
-        self.ratings = ratings[keep_idx]
 
     def __getitem__(self, idx):
         return {

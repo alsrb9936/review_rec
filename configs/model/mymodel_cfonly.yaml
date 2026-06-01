@@ -1,36 +1,15 @@
 # @package _global_
-model_name: mymodel
+model_name: mymodel_cfonly
 
 model:
-  d_id: 128
+  d_id: 64
   d_model: 64
   d_text: 128
   dropout: 0.6
   num_layers: 2
 
-  # CF-conditioned subspace dimension for each user/item review representation.
-  subspace_rank: 4
-
-  # Main pair-level selective alignment:
-  # z_shared_pair = user_shared * item_shared  <->  c_ui
-  lambda_align: 0.1
-  contrast_tau: 0.2
-
-  # Optional side-level alignment:
-  # user_shared <-> user_cf, item_shared <-> item_cf
-  # Keep 0.0 for the first main experiment.
-  lambda_side_align: 0.5
-
-
-  # review_signal = dot(user_shared, item_shared) / review_score_scale
-  # sqrt(128) ≈ 11.3137. This stabilizes the initial dot-product scale.
-  review_score_scale: 11.3137
-
-  alpha_init: 0.5
-  eps: 1e-8
-
 training:
-  batch: 128
+  batch: 64
   eval_batch: 256
   epoch: 100
   lr: 0.0005

@@ -22,4 +22,4 @@ training:
 
 evaluation:
   eval_step: 1
-  early_stop_patience: 20
+  early_stop_patience: 10
