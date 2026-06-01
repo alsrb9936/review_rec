@@ -8,14 +8,14 @@ import pandas as pd
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, open_dict
-from utils.preprocess import glove_load_embedding, google_load_embedding, clean_review, get_embedding_batch
+from utils.preprocess import glove_load_embedding, google_load_embedding, clean_review, get_embedding_batch, get_bert_whitening_embeddings
 from torch.utils.data import DataLoader
 from dataset import DATASET_DICT
 from sklearn.model_selection import train_test_split
 from utils.graph import build_lightgcn_norm_adj
 from utils.graph import build_rgcl_graph
 
-REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
+REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet","mymodel_v2"}
 
 
 def set_seed(seed: int) -> None:
@@ -71,6 +71,9 @@ def _embedding_cache_path(cfg: DictConfig, dataset: str, model_name: str) -> str
     embedding_path = cfg.data.get("cache_dir")
     if embedding_path is None:
         embedding_path = os.path.join(to_absolute_path(cfg.data.cache_dir), "embeddings")
+    if model_name == "bert_whitening":
+        vec_dim = int(cfg.data.get("bert_whitening_dim", 64))
+        safe_model = f"{safe_model}_dim{vec_dim}"
     return os.path.join(to_absolute_path(embedding_path), dataset, f"{safe_model}.pt")
 
 
@@ -84,9 +87,15 @@ def _compute_review_embeddings_for_frame(df: pd.DataFrame, cfg: DictConfig, gpu_
         non_empty_texts = [df.iloc[i]["review_text"] for i in non_empty_idx]
         model_name = str(cfg.data.get("language_model", "sentence-transformers/all-MiniLM-L6-v2"))
         batch_size = int(cfg.data.get("embedding_batch_size", 16))
-        predicted_embeddings = get_embedding_batch(
-            model_name, non_empty_texts, batch_size=batch_size, gpu_id=gpu_id
-        )
+        if model_name == "bert_whitening":
+            vec_dim = int(cfg.data.get("bert_whitening_dim", 64))
+            predicted_embeddings = get_bert_whitening_embeddings(
+                non_empty_texts, vec_dim=vec_dim, batch_size=batch_size, gpu_id=gpu_id
+            )
+        else:
+            predicted_embeddings = get_embedding_batch(
+                model_name, non_empty_texts, batch_size=batch_size, gpu_id=gpu_id
+            )
         for idx, emb in zip(non_empty_idx, predicted_embeddings):
             review_embeddings[idx] = emb
     return review_embeddings
@@ -111,6 +120,100 @@ def _attach_review_embeddings(df, cfg: DictConfig):
         print(f"Saved review embeddings to {cache_path}")
 
         return df
+
+def _generate_letter_review_embeddings(cfg: DictConfig, data_root: str, pivot: int):
+    with open_dict(cfg):
+        cfg.data.load_review_text = True
+        interactions = load_interaction_data(cfg)
+
+    texts = interactions["review_text"].fillna("").astype(str).tolist()
+    if not texts:
+        raise ValueError("No review_text found in interactions. Check .review file and column names.")
+
+    model_name = str(cfg.data.get("language_model", "sentence-transformers/all-MiniLM-L6-v2"))
+    batch_size = int(cfg.data.get("embedding_batch_size", 16))
+    gpu_id = int(cfg.experiment.device)
+
+    if model_name == "bert_whitening":
+        vec_dim = int(cfg.data.get("bert_whitening_dim", 64))
+        embeddings = get_bert_whitening_embeddings(
+            texts, vec_dim=vec_dim, batch_size=batch_size, gpu_id=gpu_id
+        )
+    else:
+        embeddings = get_embedding_batch(
+            model_name, texts, batch_size=batch_size, gpu_id=gpu_id
+        )
+    embeddings = np.array(embeddings, dtype=np.float32)
+
+    num_users = cfg.stats.num_users
+    num_items = cfg.stats.num_items
+    emb_dim = embeddings.shape[1]
+
+    u_review = np.zeros((num_users, emb_dim), dtype=np.float32)
+    i_review = np.zeros((num_items, emb_dim), dtype=np.float32)
+    u_pos_review = np.zeros((num_users, emb_dim), dtype=np.float32)
+    i_pos_review = np.zeros((num_items, emb_dim), dtype=np.float32)
+    u_neg_review = np.zeros((num_users, emb_dim), dtype=np.float32)
+    i_neg_review = np.zeros((num_items, emb_dim), dtype=np.float32)
+
+    u_count = np.zeros(num_users, dtype=np.int32)
+    i_count = np.zeros(num_items, dtype=np.int32)
+    u_pos_count = np.zeros(num_users, dtype=np.int32)
+    i_pos_count = np.zeros(num_items, dtype=np.int32)
+    u_neg_count = np.zeros(num_users, dtype=np.int32)
+    i_neg_count = np.zeros(num_items, dtype=np.int32)
+
+    for idx, row in interactions.iterrows():
+        u = int(row["user_id"])
+        i = int(row["item_id"])
+        r = float(row["rating"])
+        emb = embeddings[idx]
+
+        u_review[u] += emb
+        u_count[u] += 1
+        i_review[i] += emb
+        i_count[i] += 1
+
+        if r >= pivot + 1:
+            u_pos_review[u] += emb
+            u_pos_count[u] += 1
+            i_pos_review[i] += emb
+            i_pos_count[i] += 1
+        else:
+            u_neg_review[u] += emb
+            u_neg_count[u] += 1
+            i_neg_review[i] += emb
+            i_neg_count[i] += 1
+
+    for u in range(num_users):
+        if u_count[u] > 0:
+            u_review[u] /= u_count[u]
+        if u_pos_count[u] > 0:
+            u_pos_review[u] /= u_pos_count[u]
+        if u_neg_count[u] > 0:
+            u_neg_review[u] /= u_neg_count[u]
+
+    for i in range(num_items):
+        if i_count[i] > 0:
+            i_review[i] /= i_count[i]
+        if i_pos_count[i] > 0:
+            i_pos_review[i] /= i_pos_count[i]
+        if i_neg_count[i] > 0:
+            i_neg_review[i] /= i_neg_count[i]
+
+    files = {
+        "encoded_user_review_v2": u_review,
+        "encoded_item_review_v2": i_review,
+        f"encoded_user_review_rating_{pivot + 1}_or_above_v2": u_pos_review,
+        f"encoded_item_review_rating_{pivot + 1}_or_above_v2": i_pos_review,
+        f"encoded_user_review_rating_{pivot}_or_below_v2": u_neg_review,
+        f"encoded_item_review_rating_{pivot}_or_below_v2": i_neg_review,
+    }
+    for name, arr in files.items():
+        path = os.path.join(data_root, f"{name}.npy")
+        np.save(path, arr)
+        print(f"Saved {path}")
+
 
 def _apply_id_mapping(interactions: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
     output_dir = to_absolute_path(cfg.experiment.save_dir)
@@ -280,7 +383,6 @@ def get_dataloader(cfg: DictConfig):
         "mymodel",
         "mymodel_cfonly",
         "mymodel_neumf",
-        "mymodel_v2",
     ]:
         interactions["review_text"] = clean_review(cfg, interactions["review_text"])
 
@@ -355,16 +457,114 @@ def get_dataloader(cfg: DictConfig):
         )
 
         return train_dataloader, valid_dataloader, test_dataloader, rgcl_graph
-    else:        
-        train_df, valid_df, test_df = split_by_ratio(interactions, train_ratio=cfg.data.split.train_ratio, valid_ratio=cfg.data.split.valid_ratio, random_state=cfg.experiment.seed)
+    elif model_name == "letter":
+        train_df, valid_df, test_df = split_by_ratio(
+            interactions,
+            train_ratio=cfg.data.split.train_ratio,
+            valid_ratio=cfg.data.split.valid_ratio,
+            random_state=cfg.experiment.seed,
+        )
 
         train_dataset = dataset_cls(train_df, cfg, split="train")
         valid_dataset = dataset_cls(valid_df, cfg, split="valid")
         test_dataset = dataset_cls(test_df, cfg, split="test")
 
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch, shuffle=True)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
-        test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=cfg.training.batch, shuffle=True
+        )
+        valid_dataloader = DataLoader(
+            valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False
+        )
+        test_dataloader = DataLoader(
+            test_dataset, batch_size=cfg.training.eval_batch, shuffle=False
+        )
 
+        num_users = cfg.stats.num_users
+        num_items = cfg.stats.num_items
+        u_ratings = np.zeros((num_users, num_items), dtype=np.int32)
+        i_ratings = np.zeros((num_items, num_users), dtype=np.int32)
+        for _, row in train_df.iterrows():
+            u = int(row["user_id"])
+            i = int(row["item_id"])
+            r = int(row["rating"])
+            u_ratings[u, i] = r
+            i_ratings[i, u] = r
+
+        data_root = to_absolute_path(f"{cfg.data.root}/{cfg.data.dataset}")
+        pivot = int(cfg.model.get("pivot", 3))
+
+        def _embed_path(name):
+            path = cfg.data.get(name)
+            if path is not None:
+                return to_absolute_path(path)
+            return os.path.join(data_root, f"{name}.npy")
+
+        required_names = [
+            "encoded_user_review_v2",
+            "encoded_item_review_v2",
+            f"encoded_user_review_rating_{pivot + 1}_or_above_v2",
+            f"encoded_item_review_rating_{pivot + 1}_or_above_v2",
+            f"encoded_user_review_rating_{pivot}_or_below_v2",
+            f"encoded_item_review_rating_{pivot}_or_below_v2",
+        ]
+
+        missing = [n for n in required_names if not os.path.exists(_embed_path(n))]
+        if missing:
+            print(f"Generating LETTER review embeddings for {missing}...")
+            _generate_letter_review_embeddings(cfg, data_root, pivot)
+
+        u_review = np.load(_embed_path("encoded_user_review_v2"), allow_pickle=True)
+        i_review = np.load(_embed_path("encoded_item_review_v2"), allow_pickle=True)
+        u_pos_review = np.load(
+            _embed_path(f"encoded_user_review_rating_{pivot + 1}_or_above_v2"),
+            allow_pickle=True,
+        )
+        i_pos_review = np.load(
+            _embed_path(f"encoded_item_review_rating_{pivot + 1}_or_above_v2"),
+            allow_pickle=True,
+        )
+        u_neg_review = np.load(
+            _embed_path(f"encoded_user_review_rating_{pivot}_or_below_v2"),
+            allow_pickle=True,
+        )
+        i_neg_review = np.load(
+            _embed_path(f"encoded_item_review_rating_{pivot}_or_below_v2"),
+            allow_pickle=True,
+        )
+
+        letter_data = {
+            "reviews": [
+                u_review,
+                i_review,
+                u_pos_review,
+                i_pos_review,
+                u_neg_review,
+                i_neg_review,
+            ],
+            "ratings": [u_ratings, i_ratings],
+        }
+
+        return train_dataloader, valid_dataloader, test_dataloader, letter_data
+    else:
+        train_df, valid_df, test_df = split_by_ratio(
+            interactions,
+            train_ratio=cfg.data.split.train_ratio,
+            valid_ratio=cfg.data.split.valid_ratio,
+            random_state=cfg.experiment.seed,
+        )
+
+        train_dataset = dataset_cls(train_df, cfg, split="train")
+        valid_dataset = dataset_cls(valid_df, cfg, split="valid")
+        test_dataset = dataset_cls(test_df, cfg, split="test")
+
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=cfg.training.batch, shuffle=True
+        )
+        valid_dataloader = DataLoader(
+            valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False
+        )
+        test_dataloader = DataLoader(
+            test_dataset, batch_size=cfg.training.eval_batch, shuffle=False
+        )
 
     return train_dataloader, valid_dataloader, test_dataloader

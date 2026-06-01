@@ -12,7 +12,7 @@ from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
 from utils.util import load_interaction_data, set_seed, get_dataloader
 
-REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet"}
+REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet","mymodel_v2"}
 def _maybe_report_training_state(cfg: DictConfig) -> bool:
     model_name = str(cfg.model_name)
     missing: list[str] = []
@@ -68,7 +68,7 @@ def main(cfg: DictConfig) -> None:
         "rgcl",
         "mymodel_cfonly",
         "mymodel_neumf",
-        "mymodel_v2",
+        "letter",
     ]:
         train_loader, valid_loader, test_loader, graph_obj = get_dataloader(cfg)
         model = MODEL_DICT[model_name](cfg, graph_obj).to(device)

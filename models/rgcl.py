@@ -158,7 +158,10 @@ class RGCL(BaseModel):
 
         self.num_users = int(cfg.stats.num_users)
         self.num_items = int(cfg.stats.num_items)
-        self.review_dim = int(cfg.data.plm_embedding_size)
+        if str(cfg.data.get("language_model", "")) == "bert_whitening":
+            self.review_dim = int(cfg.data.get("bert_whitening_dim", 64))
+        else:
+            self.review_dim = int(cfg.data.plm_embedding_size)
         self.hidden_dim = int(cfg.model.hidden_dim)
         self.dropout = float(cfg.model.dropout)
 

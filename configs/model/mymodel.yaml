@@ -3,7 +3,7 @@ model_name: mymodel
 
 model:
   d_id: 128
-  d_model: 64
+  d_model: 128
   d_text: 128
   dropout: 0.6
   num_layers: 2
@@ -49,7 +49,7 @@ data:
   language_model: "sentence-transformers/all-MiniLM-L6-v2"
   plm_embedding: true
   embedding_batch_size: 16
-  plm_embedding_size: 384
+  plm_embedding_size: 128
   retain_rui: false
   min_rating: 1.0
   max_rating: 5.0

@@ -100,11 +100,18 @@ class LatentFactor(torch.nn.Module):
 class NARRE(nn.Module):
     def __init__(self, cfg, word_emb):
         super().__init__()
-        self.word_embedding = torch.nn.Embedding.from_pretrained(
-                                    word_emb,
-                                    freeze=True,
-                                    padding_idx=int(cfg.data.pad_id),
-                                )
+        if cfg.data.word_embedding_type == "google":
+            self.word_embedding = torch.nn.Embedding.from_pretrained(
+                                        word_emb,
+                                        freeze=True,
+                                        padding_idx=int(cfg.data.pad_id),
+                                    )
+        else:
+            self.word_embedding = torch.nn.Embedding.from_pretrained(
+                                        torch.Tensor(word_emb),
+                                        freeze=True,
+                                        padding_idx=int(cfg.data.pad_id),
+                                    )
         self.word_embedding.weight.requires_grad = False
         self.num_users = cfg.stats.num_users
         self.num_items = cfg.stats.num_items

@@ -4,6 +4,7 @@ from trainer.deepconn_trainer import DeepCoNNTrainer
 from trainer.narre_trainer import NARRETrainer
 from trainer.mymodel_trainer import MyModelTrainer
 from trainer.rgcl_trainer import RGCLTrainer
+from trainer.letter_trainer import LetterTrainer
 
 MODEL_TRAINER_DICT = {
     "neumf": NeuMFTrainer,
@@ -13,5 +14,6 @@ MODEL_TRAINER_DICT = {
     "rgcl": RGCLTrainer,
     "mymodel_cfonly": MyModelTrainer,
     "mymodel_neumf": MyModelTrainer,
-    "mymodel_v2": MyModelTrainer,
+    "mymodel_v2": NARRETrainer,
+    "letter": LetterTrainer,
 }

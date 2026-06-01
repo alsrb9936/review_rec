@@ -87,7 +87,10 @@ class MyModel(BaseModel):
         self.d_text = int(cfg.model.d_text)
         self.dropout = float(cfg.model.dropout)
         self.num_layers = int(cfg.model.num_layers)
-        self.input_dim = int(cfg.data.plm_embedding_size)
+        if str(cfg.data.get("language_model", "")) == "bert_whitening":
+            self.input_dim = int(cfg.data.get("bert_whitening_dim", 64))
+        else:
+            self.input_dim = int(cfg.data.plm_embedding_size)
 
         self.eps = float(cfg.model.get("eps", 1e-8))
         self.subspace_rank = int(cfg.model.get("subspace_rank", 4))

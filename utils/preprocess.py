@@ -13,7 +13,7 @@ import pandas as pd
 
 import torch
 import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, BertModel, BertTokenizer
 from gensim.models import KeyedVectors
 from gensim.models.keyedvectors import Word2VecKeyedVectors
 from nltk.tokenize import WordPunctTokenizer
@@ -158,3 +158,57 @@ def google_load_embedding(cfg):
     word_emb = torch.tensor(word_vec.vectors, dtype=torch.float32)
 
     return word_emb, word_dict
+
+
+def compute_kernel_bias(vecs, vec_dim):
+    mu = vecs.mean(axis=0, keepdims=True)
+    cov = np.cov(vecs.T)
+    u, s, _ = np.linalg.svd(cov)
+    W = np.dot(u, np.diag(1 / np.sqrt(s)))
+    return W[:, :vec_dim], -mu
+
+
+def transform_and_normalize(vecs, kernel=None, bias=None):
+    if not (kernel is None or bias is None):
+        vecs = (vecs + bias).dot(kernel)
+    return vecs / (vecs ** 2).sum(axis=1, keepdims=True) ** 0.5
+
+
+def get_bert_whitening_embeddings(texts: Sequence[str], vec_dim: int = 128, batch_size: int = 32, gpu_id: int = 0):
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    model = BertModel.from_pretrained("bert-base-uncased")
+
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{gpu_id}")
+    else:
+        device = torch.device("cpu")
+
+    model.to(device)
+    model.eval()
+    model.config.output_hidden_states = True
+
+    embeddings = []
+    total_batches = (len(texts) + batch_size - 1) // batch_size
+
+    for start in tqdm(range(0, len(texts), batch_size), total=total_batches, desc="BERT-Whitening", unit="batch"):
+        batch_texts = list(texts[start:start + batch_size])
+        encoded = tokenizer(batch_texts, padding=True, truncation=True, return_tensors="pt")
+        input_ids = encoded["input_ids"].to(device)
+        attention_mask = encoded["attention_mask"].to(device)
+
+        with torch.no_grad():
+            outputs = model(input_ids, attention_mask)
+
+        output1 = outputs.hidden_states[-2]
+        output2 = outputs.hidden_states[-1]
+        last2 = output1 + output2 / 2
+        last2 = torch.sum(attention_mask.unsqueeze(-1) * last2, dim=1) / attention_mask.sum(dim=1, keepdims=True)
+        embeddings.append(last2.cpu().numpy())
+
+    if not embeddings:
+        return []
+    vecs = np.vstack(embeddings)
+    kernel, bias = compute_kernel_bias(vecs, vec_dim)
+    vecs = transform_and_normalize(vecs, kernel, bias)
+
+    return vecs.tolist()

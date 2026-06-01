@@ -1,38 +1,38 @@
 # @package _global_
+model_name: letter
 
-defaults:
-  - _self_
-  - model: base
-
-hydra:
-  run:
-    dir: .
-  output_subdir: null
+model:
+  hidden: 128
+  pivot: 3
+  edge_ratio: 50
+  CL: 0
+  aa: 0
+  reg_lr: 1.0
+  cl_lr: 1.0
+  aa_lr: 1.0
 
 training:
-  batch: 256
-  eval_batch: 512
-  epoch: 100
-  lr: 0.001
-  weight_decay: 0.0
+  batch: 128
+  eval_batch: 128
+  epoch: 1000
+  lr: 0.0005
+  weight_decay: 1e-4
   lr_decay: 0.99
   optimizer: Adam
 
 evaluation:
   eval_step: 1
-  early_stop_patience: 10
+  early_stop_patience: 15
 
 data:
   root: /home/infolab/mnt/mingyu/review_rec/dataset
   cache_dir: /home/infolab/mnt/mingyu/review_rec/review4rec/cached
   dataset: Amazon_All_Beauty_18
-  language_model: "sentence-transformers/all-MiniLM-L6-v2"
-  plm_embedding : false
+  language_model: "bert_whitening"
+  plm_embedding: false
   embedding_batch_size: 32
   bert_whitening_dim: 64
-  word_embedding_file: null
-  stopword_file: null
-  punctuation_file: null
+  load_review_text: false
   separator: "\t"
   columns:
     user_id: user_id
