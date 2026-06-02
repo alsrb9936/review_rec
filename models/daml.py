@@ -5,9 +5,10 @@ from omegaconf import DictConfig
 
 
 class DAML(nn.Module):
-    def __init__(self, cfg: DictConfig, word_emb):
+    def __init__(self, cfg: DictConfig):
         super().__init__()
         self.doc_len = int(cfg.data.doc_len)
+        self.word_dim = int(cfg.data.word_dim)
         self.filters_num = int(cfg.model.filters_num)
         self.kernel_size = int(cfg.model.kernel_size)
         self.id_emb_size = int(cfg.model.id_emb_size)
@@ -15,29 +16,8 @@ class DAML(nn.Module):
         self.l2_reg_lambda = float(cfg.model.l2_reg_lambda)
         self.attention_chunk_size = int(cfg.model.attention_chunk_size)
 
-        embedding_weight = torch.as_tensor(word_emb, dtype=torch.float32)
-        self.word_dim = int(embedding_weight.size(1))
-        configured_word_dim = int(cfg.data.word_dim)
-        if configured_word_dim != self.word_dim:
-            raise ValueError(
-                f"DAML word_dim={configured_word_dim} does not match loaded embedding dim={self.word_dim}"
-            )
-
         self.num_users = int(cfg.stats.num_users)
         self.num_items = int(cfg.stats.num_items)
-        self.pad_id = int(cfg.data.pad_id)
-
-        freeze_word_embedding = bool(cfg.model.freeze_word_embedding)
-        self.user_word_embs = nn.Embedding.from_pretrained(
-            embedding_weight,
-            freeze=freeze_word_embedding,
-            padding_idx=self.pad_id,
-        )
-        self.item_word_embs = nn.Embedding.from_pretrained(
-            embedding_weight,
-            freeze=freeze_word_embedding,
-            padding_idx=self.pad_id,
-        )
 
         word_cnn_padding = (self.kernel_size // 2, 0)
         self.word_cnn = nn.Conv2d(
@@ -151,8 +131,23 @@ class DAML(nn.Module):
         user_id = user_id.view(-1)
         item_id = item_id.view(-1)
 
-        user_word_embs = self.user_word_embs(user_doc)
-        item_word_embs = self.item_word_embs(item_doc)
+        user_word_embs = user_doc.float()
+        item_word_embs = item_doc.float()
+
+        if user_word_embs.ndim != 3:
+            raise ValueError(f"user_doc must be [batch_size, doc_len, word_dim], got {tuple(user_word_embs.shape)}")
+        if item_word_embs.ndim != 3:
+            raise ValueError(f"item_doc must be [batch_size, doc_len, word_dim], got {tuple(item_word_embs.shape)}")
+        if user_word_embs.shape[1:] != (self.doc_len, self.word_dim):
+            raise ValueError(
+                f"user_doc shape mismatch: expected [B, {self.doc_len}, {self.word_dim}], "
+                f"got {tuple(user_word_embs.shape)}"
+            )
+        if item_word_embs.shape[1:] != (self.doc_len, self.word_dim):
+            raise ValueError(
+                f"item_doc shape mismatch: expected [B, {self.doc_len}, {self.word_dim}], "
+                f"got {tuple(item_word_embs.shape)}"
+            )
 
         user_local_fea = self.local_attention_cnn(user_word_embs, self.user_doc_cnn)
         item_local_fea = self.local_attention_cnn(item_word_embs, self.item_doc_cnn)
