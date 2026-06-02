@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from data import DATASET_DICT
 from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
-from utils.utils import set_seed, set_stats_from_npy, get_dataloader
+from utils.utils import set_seed, set_stats_from_npy, get_dataloader, build_lightgcn_norm_adj_from_train
 
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml"}
 def _maybe_report_training_state(cfg: DictConfig) -> bool:
@@ -76,7 +76,11 @@ def main(cfg: DictConfig) -> None:
     model_cls = MODEL_DICT[model_name]
     trainer_cls = MODEL_TRAINER_DICT[model_name]
 
-    model = model_cls(cfg).to(device)
+    if model_name == "lightgcn":
+        norm_adj = build_lightgcn_norm_adj_from_train(cfg).to(device)
+        model = model_cls(cfg, norm_adj).to(device)
+    else:
+        model = model_cls(cfg).to(device)
     trainer = trainer_cls(model, cfg, device)
     trainer.train(train_loader, valid_loader, test_loader)
     
