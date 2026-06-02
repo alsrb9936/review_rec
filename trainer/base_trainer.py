@@ -4,7 +4,7 @@ import logging
 import os
 import torch
 import torch.nn as nn
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -16,6 +16,9 @@ class BaseTrainer(abc.ABC):
         self.device = device
 
         os.makedirs(cfg.experiment.save_dir, exist_ok=True)
+        
+        config_path = os.path.join(cfg.experiment.save_dir, "config.yaml")
+        OmegaConf.save(config=cfg, f=config_path, resolve=True)
         log_path = os.path.join(cfg.experiment.save_dir, "train.log")
         file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))

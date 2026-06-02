@@ -71,6 +71,8 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
         pad_user_id=pad_user_id,
         pad_item_id=pad_item_id,
     )
+
+    print("Encoding target reviews... and saving target review doc and doc emb...")
     train_target_doc = encode_target_reviews(train_df, review_length=max_review_len, pad_id=pad_id)
     train_target_doc_emb = word_emb[train_target_doc]
     np.save(os.path.join(output_dir, "train_target_doc.npy"), train_target_doc)
