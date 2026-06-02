@@ -1,0 +1,37 @@
+# @package _global_
+
+model_name: daml
+
+data:
+  doc_len: 200
+  pad_id: 0
+  retain_rui: false
+  load_review_text: true
+  word_embedding_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/glove.6B.50d.txt
+  word_embedding_type: glove
+  stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
+  punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
+  word_dim: 50
+  vocab_size: 0
+
+model:
+  freeze_word_embedding: true
+  filters_num: 50
+  kernel_size: 3
+  id_emb_size: 8
+  dropout_prob: 0.2
+  l2_reg_lambda: 0.0
+  attention_chunk_size: 64
+
+training:
+  batch: 64
+  eval_batch: 64
+  epoch: 20
+  lr: 0.0001
+  weight_decay: 1e-5
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10

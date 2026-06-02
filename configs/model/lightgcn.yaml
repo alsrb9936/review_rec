@@ -1,0 +1,23 @@
+# @package _global_
+
+model_name: lightgcn
+
+model:
+  embedding_dim: 64
+  num_layers: 2
+
+data:
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 128
+  eval_batch: 256
+  epoch: 400
+  weight_decay: 1e-5
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10

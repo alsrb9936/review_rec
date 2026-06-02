@@ -1,0 +1,17 @@
+{
+    "train": {
+        "num_samples": 6638,
+        "num_users": 990,
+        "num_items": 85
+    },
+    "valid": {
+        "num_samples": 830,
+        "num_users": 554,
+        "num_items": 50
+    },
+    "test": {
+        "num_samples": 830,
+        "num_users": 543,
+        "num_items": 47
+    }
+}

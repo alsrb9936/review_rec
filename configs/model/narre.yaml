@@ -1,0 +1,32 @@
+# @package _global_
+
+model_name: narre
+
+data:
+  review_length: 40
+  review_count: 10
+  lowest_review_count: 2
+  retain_rui: false
+  pad_id: 0
+  load_review_text: true
+  word_embedding_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/glove.6B.50d.txt
+  word_embedding_type: "glove"
+  stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
+  punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
+  word_dim: 50
+  vocab_size : 0
+model:
+  freeze_word_embedding: false
+  hidden_dim: 32
+  num_filters: 100
+  kernel_size: 3
+  dropout: 0.3
+
+training:
+  batch: 128
+  eval_batch: 256
+  epoch: 600
+  lr: 0.001
+  weight_decay: 1e-5
+  lr_decay: 0.99  
+  optimizer: Adam

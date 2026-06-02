@@ -1,0 +1,61 @@
+# @package _global_
+model_name: rgcl
+
+model:
+  hidden_dim: 128
+  dropout: 0.1
+  lambda_ed: 0.8
+  lambda_nd: 0.6
+
+
+training:
+  batch: 128
+  eval_batch: 512
+  epoch: 100
+  lr: 0.001
+  weight_decay: 0
+  lr_decay: 0
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10
+
+data:
+  root: /home/infolab/mnt/mingyu/review_rec/dataset
+  cache_dir: /home/infolab/mnt/mingyu/review_rec/review4rec/cached
+  dataset: Amazon_All_Beauty_18
+
+  load_review_text: true
+  plm_embedding: true
+  language_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_batch_size: 16
+  plm_embedding_size: 384
+
+  min_rating: 1.0
+  max_rating: 5.0
+  separator: "\t"
+
+  stopword_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/stopwords.txt
+  punctuation_file: /home/infolab/mnt/mingyu/review_rec/review4rec/cached/word2vec/punctuations.txt
+
+  columns:
+    user_id: user_id
+    item_id: item_id
+    timestamp: timestamp
+    rating: rating
+    review_text: reviewText
+
+  split:
+    train_ratio: 0.8
+    valid_ratio: 0.1
+
+experiment:
+  seed: 42
+  device: 0
+  save_dir: ./outputs
+  log_step: 10
+
+stats:
+  num_users: 0
+  num_items: 0

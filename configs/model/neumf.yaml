@@ -1,0 +1,25 @@
+# @package _global_
+# NeuMF model config - overrides default config values
+
+model_name: neumf
+model:
+  mf_embedding_size: 64
+  mlp_embedding_size: 64
+  mlp_hidden_size: [64, 32]
+  dropout: 0.5
+
+data:
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 128
+  eval_batch: 256
+  epoch: 150
+  weight_decay: 0
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10
