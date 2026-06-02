@@ -4,6 +4,7 @@ from models.narre import NARRE
 from models.rgcl import RGCL
 from models.daml import DAML
 from models.lightgcn import LightGCN
+from models.transnet import TransNet
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -12,4 +13,5 @@ MODEL_DICT = {
     "rgcl": RGCL,
     "daml": DAML,
     "lightgcn": LightGCN,
+    "transnet": TransNet,
 }
