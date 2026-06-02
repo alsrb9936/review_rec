@@ -4,7 +4,20 @@ from omegaconf import DictConfig
 
 
 class LightGCNEncoder(nn.Module):
-    def __init__(self, num_users: int, num_items: int, norm_adj: torch.Tensor, embedding_dim: int, num_layers: int):
+    """Pure LightGCN encoder with trainable user/item ID embeddings.
+
+    No review text or review embedding is consumed here. The normalized adjacency
+    matrix is built from train interactions and passed once at model construction.
+    """
+
+    def __init__(
+        self,
+        num_users: int,
+        num_items: int,
+        norm_adj: torch.Tensor,
+        embedding_dim: int,
+        num_layers: int,
+    ):
         super().__init__()
         self.num_users = int(num_users)
         self.num_items = int(num_items)
@@ -17,11 +30,14 @@ class LightGCNEncoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.xavier_uniform_(self.user_embedding.weight)
-        nn.init.xavier_uniform_(self.item_embedding.weight)
+        nn.init.normal_(self.user_embedding.weight, std=0.1)
+        nn.init.normal_(self.item_embedding.weight, std=0.1)
 
     def get_all_embeddings(self):
-        embeddings = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)
+        embeddings = torch.cat(
+            [self.user_embedding.weight, self.item_embedding.weight],
+            dim=0,
+        )
         layer_outputs = [embeddings]
 
         for _ in range(self.num_layers):
@@ -29,9 +45,14 @@ class LightGCNEncoder(nn.Module):
             layer_outputs.append(embeddings)
 
         final_embeddings = torch.stack(layer_outputs, dim=0).mean(dim=0)
-        return final_embeddings[: self.num_users], final_embeddings[self.num_users :]
+        user_embeddings, item_embeddings = torch.split(
+            final_embeddings,
+            [self.num_users, self.num_items],
+            dim=0,
+        )
+        return user_embeddings, item_embeddings
 
-    def forward(self, user_id, item_id):
+    def forward(self, user_id: torch.Tensor, item_id: torch.Tensor):
         user_all, item_all = self.get_all_embeddings()
         return user_all[user_id], item_all[item_id]
 
@@ -61,18 +82,16 @@ class LightGCN(nn.Module):
         nn.init.zeros_(self.user_bias.weight)
         nn.init.zeros_(self.item_bias.weight)
 
-    def forward(self, **kwargs):
-        user_id = kwargs["user_id"]
-        item_id = kwargs["item_id"]
+    def forward(self, user_id: torch.Tensor, item_id: torch.Tensor):
         user_id = user_id.view(-1)
         item_id = item_id.view(-1)
+
         user_emb, item_emb = self.graph_encoder(user_id, item_id)
         rating_pred = torch.sum(user_emb * item_emb, dim=-1)
         rating_pred = rating_pred + self.user_bias(user_id).squeeze(-1)
         rating_pred = rating_pred + self.item_bias(item_id).squeeze(-1)
         return rating_pred + self.global_bias
 
-    def calculate_loss(self, **kwargs):
-        prediction = self.forward(user_id=kwargs["user_id"], item_id=kwargs["item_id"])
-        rating = kwargs["rating"]
+    def calculate_loss(self, user_id: torch.Tensor, item_id: torch.Tensor, rating: torch.Tensor):
+        prediction = self.forward(user_id=user_id, item_id=item_id)
         return self.loss_fn(prediction, rating.view(-1).float())
