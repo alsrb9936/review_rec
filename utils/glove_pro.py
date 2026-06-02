@@ -78,6 +78,8 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
     np.save(os.path.join(output_dir, "train_target_doc.npy"), train_target_doc)
     np.save(os.path.join(output_dir, "train_target_doc_emb.npy"),train_target_doc_emb.astype(np.float32))
 
+    del train_target_doc, train_target_doc_emb
+
     print("Saving split docs...")
     print("Saving Train split docs...")
     save_split_docs("train", train_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id, word_emb=word_emb)
