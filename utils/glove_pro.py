@@ -23,7 +23,7 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
     """
     output_dir = cfg.data.output_path
     output_dir = os.path.join(output_dir, cfg.data.dataset, "glove")
-    
+    os.makedirs(output_dir, exist_ok=True)
     print("Starting GloVe preprocessing...")
     print("Cleaning and calculating max_len, max_count...")
     train_df["clean_review"] = glove_clean_review(train_df, cfg)
@@ -45,15 +45,14 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
     pad_id = 0
     word_emb, word_dict = glove_load_embedding(cfg)
 
-    for frame in (train_df):
-        frame["review_ids"] = frame["clean_review"].apply(
-            lambda x: review2id(x, word_dict, pad_id)
-        )
+    train_df["review_ids"] = train_df["clean_review"].apply(lambda x: review2id(x, word_dict, pad_id))
     
     # 5. train 기준 entity docs 생성
     all_df = pd.concat([train_df, valid_df, test_df], axis=0)
     num_users = int(all_df["user_id"].max()) + 1
     num_items = int(all_df["item_id"].max()) + 1
+    pad_user_id = num_users
+    pad_item_id = num_items
     del all_df
 
     user_doc, item_doc = build_entity_docs_from_train(
@@ -64,12 +63,21 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
         review_length=max_review_len,
         pad_id=pad_id,
     )
+    user_doc_item_ids, item_doc_user_ids = build_entity_doc_ids_from_train(
+        train_df=train_df,
+        num_users=num_users,
+        num_items=num_items,
+        review_count=max_review_count,
+        pad_user_id=pad_user_id,
+        pad_item_id=pad_item_id,
+    )
+    train_target_doc = encode_target_reviews(train_df, review_length=max_review_len, pad_id=pad_id)
+    np.save(os.path.join(output_dir, "train_target_doc.npy"), train_target_doc)
 
-    # split-level docs
-    save_split_docs("train", train_df, user_doc, item_doc, output_dir, review_length=max_review_len, pad_id=pad_id )
-    save_split_docs("valid", valid_df, user_doc, item_doc, output_dir, review_length=max_review_len, pad_id=pad_id )
-    save_split_docs("test", test_df, user_doc, item_doc, output_dir, review_length=max_review_len, pad_id=pad_id )
-
+    save_split_docs("train", train_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id)
+    save_split_docs("valid", valid_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id)
+    save_split_docs("test", test_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id)
+    
 def build_entity_docs_from_train(
     train_df,
     num_users,
@@ -116,7 +124,7 @@ def build_entity_docs_from_train(
 
     return user_doc, item_doc   
 
-def save_split_docs(split_name, df, user_doc, item_doc, save_dir, review_length, pad_id=0):
+def save_split_docs(split_name, df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, save_dir, review_length, pad_id=0):
     """
     split별 row 순서에 맞춘 user_doc/item_doc 저장.
     valid/test도 user_doc, item_doc 자체는 train_df로 만든 것을 lookup한다.
@@ -125,16 +133,18 @@ def save_split_docs(split_name, df, user_doc, item_doc, save_dir, review_length,
     item_ids = df["item_id"].astype(np.int64).to_numpy()
     ratings = df["rating"].astype(np.float32).to_numpy()
 
+    # common
     np.save(os.path.join(save_dir, f"{split_name}_user_id.npy"), user_ids)
     np.save(os.path.join(save_dir, f"{split_name}_item_id.npy"), item_ids)
     np.save(os.path.join(save_dir, f"{split_name}_rating.npy"), ratings)
 
+    # user_doc, item_doc deepconn
     np.save(os.path.join(save_dir, f"{split_name}_user_doc.npy"), user_doc[user_ids])
     np.save(os.path.join(save_dir, f"{split_name}_item_doc.npy"), item_doc[item_ids])
 
-    # TransNet에서 target review를 쓸 수 있게 split별 현재 interaction review도 저장.
-    target_doc = encode_target_reviews(df, review_length=review_length, pad_id=pad_id)
-    np.save(os.path.join(save_dir, f"{split_name}_target_doc.npy"), target_doc)
+    # NARRE용 doc id 저장.
+    np.save(os.path.join(save_dir, f"{split_name}_user_review_item_ids.npy"), user_doc_item_ids[user_ids])
+    np.save(os.path.join(save_dir, f"{split_name}_item_review_user_ids.npy"), item_doc_user_ids[item_ids])
 
 def percentile_cap(values):
     percent=0.85
@@ -150,6 +160,64 @@ def pad_or_truncate(ids, max_len, pad_id=0):
     ids = ids[:max_len]
     ids = ids + [pad_id] * (max_len - len(ids))
     return ids
+
+def encode_doc_ids(costar_id_list, review_count, pad_costar_id):
+    costar_id_list = [int(x) for x in costar_id_list[:review_count]]
+
+    while len(costar_id_list) < review_count:
+        costar_id_list.append(pad_costar_id)
+
+    return np.asarray(costar_id_list, dtype=np.int64)
+
+def build_entity_doc_ids_from_train(
+    train_df,
+    num_users,
+    num_items,
+    review_count,
+    pad_user_id,
+    pad_item_id,
+):
+    """
+    NARRE용 id doc 생성.
+
+    user_doc_item_ids[user_id]
+    = user_doc[user_id]에 들어간 각 review의 item_id
+
+    item_doc_user_ids[item_id]
+    = item_doc[item_id]에 들어간 각 review의 user_id
+    """
+
+    user_doc_item_ids = np.full(
+        (num_users, review_count),
+        fill_value=pad_item_id,
+        dtype=np.int64,
+    )
+
+    item_doc_user_ids = np.full(
+        (num_items, review_count),
+        fill_value=pad_user_id,
+        dtype=np.int64,
+    )
+
+    user_groups = train_df.groupby("user_id")["item_id"].apply(list).to_dict()
+    item_groups = train_df.groupby("item_id")["user_id"].apply(list).to_dict()
+
+    for user_id, item_id_list in user_groups.items():
+        user_doc_item_ids[int(user_id)] = encode_doc_ids(
+            item_id_list,
+            review_count=review_count,
+            pad_costar_id=pad_item_id,
+        )
+
+    for item_id, user_id_list in item_groups.items():
+        item_doc_user_ids[int(item_id)] = encode_doc_ids(
+            user_id_list,
+            review_count=review_count,
+            pad_costar_id=pad_user_id,
+        )
+
+    return user_doc_item_ids, item_doc_user_ids
+
 
 def encode_doc(review_id_list, review_count, review_length, pad_id=0):
     """
@@ -195,7 +263,7 @@ def review2id(review, word_dict, pad_id=0):
     return ids
 
 def glove_load_embedding(cfg):
-    word2vec_file = cfg.data.word_embedding_file
+    word2vec_file = cfg.data.glove_path
     with open(word2vec_file, encoding='utf-8') as f:
         word_emb = list()
         word_dict = dict()

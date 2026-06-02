@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 
 from utils.load_data import load_interaction_data, split_by_ratio
-from review_rec.review_reproducibility.utils.glove_pro import glove_preprocess
-from review_rec.review_reproducibility.utils.bert_pro import bert_preprocess
+from utils.glove_pro import glove_preprocess
+from utils.bert_pro import bert_preprocess
 
 import hydra
 from omegaconf import DictConfig, open_dict
