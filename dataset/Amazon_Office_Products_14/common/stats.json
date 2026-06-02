@@ -1,1 +1,0 @@
-{"train": {"num_samples": 42589, "num_users": 4905, "num_items": 2420}, "valid": {"num_samples": 5324, "num_users": 2948, "num_items": 1694}, "test": {"num_samples": 5324, "num_users": 2947, "num_items": 1646}}

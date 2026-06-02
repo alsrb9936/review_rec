@@ -1,65 +1,66 @@
-from dataclasses import dataclass
-from typing import Dict, List
+import os
 
+import numpy as np
 import torch
-from omegaconf import DictConfig
-
-from pandas import DataFrame
-from torch.utils.data import Dataset, DataLoader
-from gensim.models.keyedvectors import Word2VecKeyedVectors
-
-import torch
+from omegaconf import DictConfig, open_dict
 from torch.utils.data import Dataset
-import pandas as pd
 
 
 class NARREDataset(Dataset):
-    def __init__(self, df, cfg, word_dict, split="train", history_df=None):
+    def __init__(self, cfg: DictConfig, split: str = "train"):
         super().__init__()
 
-        self.df = df.copy().reset_index(drop=True)
+        self.cfg = cfg
+        self.split = split
 
-        if history_df is None:
-            history_df = df
-        self.history_df = history_df.copy().reset_index(drop=True)
+        (
+            user_ids,
+            item_ids,
+            ratings,
+            user_reviews,
+            item_reviews,
+            user_review_item_ids,
+            item_review_user_ids,
+        ) = self._load_data(split)
 
-        self.word_dict = word_dict
+        self.user_ids = torch.tensor(user_ids, dtype=torch.long)
+        self.item_ids = torch.tensor(item_ids, dtype=torch.long)
+        self.ratings = torch.tensor(ratings, dtype=torch.float32)
 
-        self.review_length = int(cfg.data.review_length)
-        self.review_count = int(cfg.data.review_count)
-        self.pad_id = int(cfg.data.pad_id)
+        self.user_reviews = torch.tensor(user_reviews, dtype=torch.long)
+        self.item_reviews = torch.tensor(item_reviews, dtype=torch.long)
 
-        self.pad_user_id = int(cfg.stats.num_users)
-        self.pad_item_id = int(cfg.stats.num_items)
-        self.lowest_r_count = int(cfg.data.lowest_review_count)
-
-        self.retain_rui = False
-        if split == "train":
-            self.retain_rui = bool(cfg.data.retain_rui)
-
-        self.df["review_text"] = self.df["review_text"].apply(self._review2id)
-        self.history_df["review_text"] = self.history_df["review_text"].apply(self._review2id)
-
-        self.user_reviews, self.user_review_item_ids = self._get_reviews_and_ids(
-            target_df=self.df,
-            history_df=self.history_df,
-            lead="user_id",
-            costar="item_id",
+        self.user_review_item_ids = torch.tensor(
+            user_review_item_ids,
+            dtype=torch.long,
+        )
+        self.item_review_user_ids = torch.tensor(
+            item_review_user_ids,
+            dtype=torch.long,
         )
 
-        self.item_reviews, self.item_review_user_ids = self._get_reviews_and_ids(
-            target_df=self.df,
-            history_df=self.history_df,
-            lead="item_id",
-            costar="user_id",
-        )
+        assert len(self.user_ids) == len(self.item_ids) == len(self.ratings)
+        assert len(self.user_ids) == len(self.user_reviews) == len(self.item_reviews)
+        assert len(self.user_ids) == len(self.user_review_item_ids)
+        assert len(self.user_ids) == len(self.item_review_user_ids)
 
-        self.user_ids = torch.tensor(self.df["user_id"].values, dtype=torch.long)
-        self.item_ids = torch.tensor(self.df["item_id"].values, dtype=torch.long)
-        self.ratings = torch.tensor(self.df["rating"].values, dtype=torch.float32).view(-1, 1)
+        if self.user_reviews.ndim != 3:
+            raise ValueError(
+                f"user_reviews must be 3D [N, review_count, review_length], "
+                f"but got {tuple(self.user_reviews.shape)}"
+            )
+
+        review_count = int(self.user_reviews.shape[1])
+        review_length = int(self.user_reviews.shape[2])
+
+        with open_dict(self.cfg):
+            self.cfg.data.review_count = review_count
+            self.cfg.data.review_length = review_length
+            self.cfg.data.pad_id = 0
+            self.cfg.data.word_dim = 50
 
     def __len__(self):
-        return self.ratings.shape[0]
+        return len(self.ratings)
 
     def __getitem__(self, idx):
         return {
@@ -74,72 +75,64 @@ class NARREDataset(Dataset):
             "item_review_user_ids": self.item_review_user_ids[idx],
         }
 
-    def _get_reviews_and_ids(self, target_df, history_df, lead, costar):
-        reviews_by_lead = {
-            lead_id: group[[costar, "review_text"]]
-            for lead_id, group in history_df.groupby(lead)
-        }
-
-        if costar == "item_id":
-            pad_costar_id = self.pad_item_id
-        elif costar == "user_id":
-            pad_costar_id = self.pad_user_id
-        else:
-            raise ValueError(f"Unknown costar column: {costar}")
-
-        all_reviews = []
-        all_costar_ids = []
-
-        for idx, (lead_id, costar_id) in enumerate(zip(target_df[lead], target_df[costar])):
-            group = reviews_by_lead.get(lead_id)
-
-            if group is None:
-                reviews = []
-                costar_ids = []
-            elif self.retain_rui:
-                reviews = group["review_text"].to_list()
-                costar_ids = group[costar].to_list()
-            else:
-                filtered = group[group[costar] != costar_id]
-                reviews = filtered["review_text"].to_list()
-                costar_ids = filtered[costar].to_list()
-
-
-            reviews, costar_ids = self._adjust_review_list_and_ids(
-                reviews,
-                costar_ids,
-                pad_costar_id,
+    def _load_data(self, split: str):
+        if split not in ["train", "valid", "test"]:
+            raise ValueError(
+                f"Invalid split: {split}. Must be one of ['train', 'valid', 'test']."
             )
 
-            all_reviews.append(reviews)
-            all_costar_ids.append(costar_ids)
+        data_dir = os.path.join(
+            self.cfg.data.root,
+            self.cfg.data.dataset,
+            self.cfg.data.type,
+        )
 
-        return torch.LongTensor(all_reviews), torch.LongTensor(all_costar_ids)
+        user_id_path = os.path.join(data_dir, f"{split}_user_id.npy")
+        item_id_path = os.path.join(data_dir, f"{split}_item_id.npy")
+        rating_path = os.path.join(data_dir, f"{split}_rating.npy")
 
-    def _adjust_review_list_and_ids(self, reviews, costar_ids, pad_costar_id):
-        reviews = reviews[:self.review_count]
-        costar_ids = costar_ids[:self.review_count]
+        user_doc_path = os.path.join(data_dir, f"{split}_user_doc.npy")
+        item_doc_path = os.path.join(data_dir, f"{split}_item_doc.npy")
 
-        pad_review = [self.pad_id] * self.review_length
+        user_review_item_ids_path = os.path.join(
+            data_dir,
+            f"{split}_user_review_item_ids.npy",
+        )
+        item_review_user_ids_path = os.path.join(
+            data_dir,
+            f"{split}_item_review_user_ids.npy",
+        )
 
-        while len(reviews) < self.review_count:
-            reviews.append(pad_review)
-            costar_ids.append(pad_costar_id)
+        required_paths = [
+            user_id_path,
+            item_id_path,
+            rating_path,
+            user_doc_path,
+            item_doc_path,
+            user_review_item_ids_path,
+            item_review_user_ids_path,
+        ]
 
-        fixed_reviews = []
-        for review in reviews:
-            review = review[:self.review_length]
-            review = review + [self.pad_id] * (self.review_length - len(review))
-            fixed_reviews.append(review)
+        for path in required_paths:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Missing NARRE dataset file: {path}")
 
-        return fixed_reviews, costar_ids
+        user_ids = np.load(user_id_path)
+        item_ids = np.load(item_id_path)
+        ratings = np.load(rating_path)
 
-    def _review2id(self, review):
-        if not isinstance(review, str):
-            return []
+        user_reviews = np.load(user_doc_path)
+        item_reviews = np.load(item_doc_path)
 
-        wids = []
-        for word in review.split():
-            wids.append(self.word_dict.get(word, self.pad_id))
+        user_review_item_ids = np.load(user_review_item_ids_path)
+        item_review_user_ids = np.load(item_review_user_ids_path)
 
-        return wids
+        return (
+            user_ids,
+            item_ids,
+            ratings,
+            user_reviews,
+            item_reviews,
+            user_review_item_ids,
+            item_review_user_ids,
+        )
