@@ -17,35 +17,44 @@ class DeepCoNNDataset(Dataset):
         self.user_ids = torch.tensor(user_ids, dtype=torch.long)
         self.item_ids = torch.tensor(item_ids, dtype=torch.long)
         self.ratings = torch.tensor(ratings, dtype=torch.float32)
-        self.user_reviews = torch.tensor(user_reviews, dtype=torch.long)
-        self.item_reviews = torch.tensor(item_reviews, dtype=torch.long)
+
+        # Precomputed GloVe document embeddings.
+        # Shape: [num_samples, review_count, review_length, word_dim]
+        self.user_reviews = torch.tensor(user_reviews, dtype=torch.float32)
+        self.item_reviews = torch.tensor(item_reviews, dtype=torch.float32)
 
         assert len(self.user_ids) == len(self.item_ids) == len(self.ratings)
         assert len(self.user_ids) == len(self.user_reviews) == len(self.item_reviews)
 
-        if self.user_reviews.ndim != 3:
+        if self.user_reviews.ndim != 4:
             raise ValueError(
-                f"Expected user_reviews to be 3D [num_samples, review_count, review_length], "
+                "Expected user_reviews to be 4D "
+                "[num_samples, review_count, review_length, word_dim], "
                 f"but got shape={tuple(self.user_reviews.shape)}"
             )
-        if self.item_reviews.ndim != 3:
+        if self.item_reviews.ndim != 4:
             raise ValueError(
-                f"Expected item_reviews to be 3D [num_samples, review_count, review_length], "
+                "Expected item_reviews to be 4D "
+                "[num_samples, review_count, review_length, word_dim], "
                 f"but got shape={tuple(self.item_reviews.shape)}"
             )
 
         if self.user_reviews.shape[1:] != self.item_reviews.shape[1:]:
             raise ValueError(
-                f"user_reviews and item_reviews must have the same [review_count, review_length], "
+                "user_reviews and item_reviews must have the same "
+                "[review_count, review_length, word_dim], "
                 f"but got user={tuple(self.user_reviews.shape[1:])}, "
                 f"item={tuple(self.item_reviews.shape[1:])}"
             )
 
         review_count = int(self.user_reviews.shape[1])
         review_length = int(self.user_reviews.shape[2])
+        word_dim = int(self.user_reviews.shape[3])
+
         with open_dict(self.cfg):
             self.cfg.data.review_count = review_count
             self.cfg.data.review_length = review_length
+            self.cfg.data.word_dim = word_dim
 
     def __getitem__(self, idx):
         return {
@@ -74,8 +83,8 @@ class DeepCoNNDataset(Dataset):
         user_id_path = os.path.join(data_dir, f"{split}_user_id.npy")
         item_id_path = os.path.join(data_dir, f"{split}_item_id.npy")
         rating_path = os.path.join(data_dir, f"{split}_rating.npy")
-        user_doc_path = os.path.join(data_dir, f"{split}_user_doc.npy")
-        item_doc_path = os.path.join(data_dir, f"{split}_item_doc.npy")
+        user_doc_path = os.path.join(data_dir, f"{split}_user_doc_emb.npy")
+        item_doc_path = os.path.join(data_dir, f"{split}_item_doc_emb.npy")
 
         required_paths = [
             user_id_path,
@@ -91,7 +100,7 @@ class DeepCoNNDataset(Dataset):
         user_ids = np.load(user_id_path)
         item_ids = np.load(item_id_path)
         ratings = np.load(rating_path)
-        user_reviews = np.load(user_doc_path)
-        item_reviews = np.load(item_doc_path)
+        user_reviews = np.load(user_doc_path).astype(np.float32)
+        item_reviews = np.load(item_doc_path).astype(np.float32)
 
         return user_ids, item_ids, ratings, user_reviews, item_reviews
