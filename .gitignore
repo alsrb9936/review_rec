@@ -4,6 +4,7 @@ AGENTS.md
 *.pkl
 *.txt
 *.csv
+*.npy
 __pycache__
 .pdf
 /outputs
