@@ -1,9 +1,10 @@
 import torch
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
 from typing import Optional
+
+
 class ReviewEncoder(torch.nn.Module):
     def __init__(
         self,
@@ -31,17 +32,18 @@ class ReviewEncoder(torch.nn.Module):
         self.hidden_dim = cfg.model.hidden_dim
         self.kernel_size = cfg.model.kernel_size
         self.dropout = cfg.model.dropout
-
         self.word_dim = cfg.data.word_dim
 
         self.conv = torch.nn.Conv1d(
             in_channels=self.word_dim,
             out_channels=self.num_filters,
             kernel_size=self.kernel_size,
-            stride=1)
+            stride=1,
+        )
         self.max_pool = torch.nn.MaxPool1d(
             kernel_size=self.review_length - self.kernel_size + 1,
-            stride=1)
+            stride=1,
+        )
 
         self.att_review = torch.nn.Linear(self.num_filters, self.hidden_dim)
         self.att_id = torch.nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
@@ -49,7 +51,6 @@ class ReviewEncoder(torch.nn.Module):
 
         self.top_linear = torch.nn.Linear(self.num_filters, self.hidden_dim)
         self.dropout = torch.nn.Dropout(self.dropout)
-
         self.lossfn = torch.nn.MSELoss()
 
     def forward(self, review_emb, preference_id, quality_id):
@@ -75,7 +76,8 @@ class ReviewEncoder(torch.nn.Module):
         feature = self.top_linear(feature)
         feature = preference_id_emb + feature
         return feature
-    
+
+
 class LatentFactor(torch.nn.Module):
     def __init__(self, cfg: DictConfig):
         super().__init__()
@@ -88,34 +90,20 @@ class LatentFactor(torch.nn.Module):
         item_id = item_id.view(-1)
 
         dot = user_feature * item_feature
-
         predict = (
             self.linear(dot)
             + self.b_user[user_id].view(-1, 1)
             + self.b_item[item_id].view(-1, 1)
         )
-
         return predict
-    
+
+
 class NARRE(nn.Module):
-    def __init__(self, cfg, word_emb):
+    def __init__(self, cfg):
         super().__init__()
-        if cfg.data.word_embedding_type == "google":
-            self.word_embedding = torch.nn.Embedding.from_pretrained(
-                                        word_emb,
-                                        freeze=True,
-                                        padding_idx=int(cfg.data.pad_id),
-                                    )
-        else:
-            self.word_embedding = torch.nn.Embedding.from_pretrained(
-                                        torch.Tensor(word_emb),
-                                        freeze=True,
-                                        padding_idx=int(cfg.data.pad_id),
-                                    )
-        self.word_embedding.weight.requires_grad = False
+
         self.num_users = cfg.stats.num_users
         self.num_items = cfg.stats.num_items
-    
         self.pad_user_id = self.num_users
         self.pad_item_id = self.num_items
 
@@ -137,36 +125,32 @@ class NARRE(nn.Module):
         self.lossfn = torch.nn.MSELoss()
 
     def forward(
-            self,
-            user_id,
-            item_id,
-            user_review,
-            item_review,
-            user_review_item_ids,
-            item_review_user_ids,
-        ):
+        self,
+        user_id,
+        item_id,
+        user_review,
+        item_review,
+        user_review_item_ids,
+        item_review_user_ids,
+    ):
         user_id = user_id.view(-1)
         item_id = item_id.view(-1)
 
-        user_review_emb = self.word_embedding(user_review)
         user_feature = self.user_review_layer(
-                user_review_emb,
-                user_id,
-                user_review_item_ids,  # item id들, max <= num_items
-            )
-
-        item_review_emb = self.word_embedding(item_review)
-        item_feature = self.item_review_layer(
-            item_review_emb,
-            item_id,
-            item_review_user_ids,  # user id들, max <= num_users
+            user_review.float(),
+            user_id,
+            user_review_item_ids,
         )
 
+        item_feature = self.item_review_layer(
+            item_review.float(),
+            item_id,
+            item_review_user_ids,
+        )
 
-        predict =self.predict_linear(user_feature, user_id, item_feature, item_id)
-
+        predict = self.predict_linear(user_feature, user_id, item_feature, item_id)
         return predict
-    
+
     def calculate_loss(
         self,
         user_id,
