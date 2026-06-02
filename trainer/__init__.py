@@ -5,6 +5,7 @@ from trainer.narre_trainer import NARRETrainer
 from trainer.rgcl_trainer import RGCLTrainer
 from trainer.daml_trainer import DAMLTrainer
 from trainer.lightgcn_trainer import LightGCNTrainer
+from trainer.transnet_trainer import TransNetTrainer
 
 MODEL_TRAINER_DICT = {
     "neumf": NeuMFTrainer,
@@ -13,4 +14,5 @@ MODEL_TRAINER_DICT = {
     "rgcl": RGCLTrainer,
     "daml": DAMLTrainer,
     "lightgcn": LightGCNTrainer,
+    "transnet": TransNetTrainer,
 }
