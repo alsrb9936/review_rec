@@ -1,11 +1,10 @@
-from dataset.base_dataset import BaseDataset
-from review_rec.review_reproducibility.data.neumf_dataset import NeuMFDataset
-from dataset.deepconn_dataset import DeepCoNNDataset
-from dataset.narre_dataset import NARREDataset
-from dataset.mymodel_dataset import MyModelDataset
-from dataset.rgcl_dataset import RGCLDataset
-from dataset.daml_dataset import DAMLDataset
-from dataset.lightgcn_dataset import LightGCNDataset
+from data.neumf_dataset import NeuMFDataset
+from data.deepconn_dataset import DeepCoNNDataset
+from data.narre_dataset import NARREDataset
+from data.rgcl_dataset import RGCLDataset
+from data.daml_dataset import DAMLDataset
+from data.lightgcn_dataset import LightGCNDataset
+
 DATASET_DICT = {
     "neumf": NeuMFDataset,
     "deepconn": DeepCoNNDataset,

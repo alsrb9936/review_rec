@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from omegaconf import DictConfig
 
 
-class NeuMFDataset(Dataset):
+class LightGCNDataset(Dataset):
     def __init__(self, cfg: DictConfig, split: str = "train"):
         super().__init__()
 
