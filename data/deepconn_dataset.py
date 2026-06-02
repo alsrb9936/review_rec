@@ -26,27 +26,6 @@ class DeepCoNNDataset(Dataset):
         assert len(self.user_ids) == len(self.item_ids) == len(self.ratings)
         assert len(self.user_ids) == len(self.user_reviews) == len(self.item_reviews)
 
-        if self.user_reviews.ndim != 4:
-            raise ValueError(
-                "Expected user_reviews to be 4D "
-                "[num_samples, review_count, review_length, word_dim], "
-                f"but got shape={tuple(self.user_reviews.shape)}"
-            )
-        if self.item_reviews.ndim != 4:
-            raise ValueError(
-                "Expected item_reviews to be 4D "
-                "[num_samples, review_count, review_length, word_dim], "
-                f"but got shape={tuple(self.item_reviews.shape)}"
-            )
-
-        if self.user_reviews.shape[1:] != self.item_reviews.shape[1:]:
-            raise ValueError(
-                "user_reviews and item_reviews must have the same "
-                "[review_count, review_length, word_dim], "
-                f"but got user={tuple(self.user_reviews.shape[1:])}, "
-                f"item={tuple(self.item_reviews.shape[1:])}"
-            )
-
         review_count = int(self.user_reviews.shape[1])
         review_length = int(self.user_reviews.shape[2])
         word_dim = int(self.user_reviews.shape[3])
