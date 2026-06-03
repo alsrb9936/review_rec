@@ -24,12 +24,18 @@ class RGCLTrainer(BaseTrainer):
 
         loss = outputs["loss"]
         loss.backward()
+
+        grad_clip = float(self.cfg.training.get("grad_clip", 1.0))
+        if grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
+
         self.optimizer.step()
 
-        return loss
+        return loss.detach()
 
     def evaluate(self, data_loader: DataLoader) -> dict:
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         self.model.eval()
 
         all_preds = []
@@ -39,7 +45,7 @@ class RGCLTrainer(BaseTrainer):
             for batch in data_loader:
                 batch = self._move_batch_to_device(batch)
 
-                # valid/test에서는 target review를 사용하지 않음
+                # valid/test do not use target review embeddings.
                 preds = self.model(
                     user_id=batch["user_id"],
                     item_id=batch["item_id"],
