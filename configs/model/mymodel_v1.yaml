@@ -1,0 +1,30 @@
+# @package _global_
+
+model_name: mymodel_v1
+
+model:
+  embedding_dim: 64
+  num_layers: 2
+  review_layers: 0
+  review_dropout: 0.3
+  lambda_user_align: 0.05
+  lambda_item_align: 0.05
+  temperature: 0.2
+  rating_loss: mse
+
+data:
+  type: bert
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 64
+  eval_batch: 512
+  epoch: 200
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 15
