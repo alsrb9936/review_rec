@@ -51,7 +51,7 @@ def _build_norm_adj(
     ).coalesce()
 
 
-class MyModel(nn.Module):
+class MyModelV1(nn.Module):
     """
     Review-free inference model.
 

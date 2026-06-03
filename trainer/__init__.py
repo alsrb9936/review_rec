@@ -6,7 +6,7 @@ from trainer.rgcl_trainer import RGCLTrainer
 from trainer.daml_trainer import DAMLTrainer
 from trainer.lightgcn_trainer import LightGCNTrainer
 from trainer.transnet_trainer import TransNetTrainer
-from trainer.mymodel_trainer import MyModelTrainer
+from trainer.mymodel_v1_trainer import MyModelV1Trainer
 from trainer.letter_trainer import LETTERTrainer
 
 MODEL_TRAINER_DICT = {
@@ -17,6 +17,6 @@ MODEL_TRAINER_DICT = {
     "daml": DAMLTrainer,
     "lightgcn": LightGCNTrainer,
     "transnet": TransNetTrainer,
-    "mymodel": MyModelTrainer,
+    "mymodel_v1": MyModelV1Trainer,
     "letter": LETTERTrainer
 }

@@ -7,7 +7,7 @@ from trainer.base_trainer import BaseTrainer
 from utils.metric import compute_all_metrics
 
 
-class MyModelTrainer(BaseTrainer):
+class MyModelV1Trainer(BaseTrainer):
     def train_step(self, batch) -> torch.Tensor:
         self.model.train()
         self.optimizer.zero_grad()

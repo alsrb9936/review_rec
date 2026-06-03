@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
 
-class MyModelDataset(Dataset):
+class MyModelV1Dataset(Dataset):
     """
     Mini-batch rating dataset for MyModel.
 
