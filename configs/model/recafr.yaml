@@ -9,6 +9,8 @@ model:
   reg_weight: 1.0e-7
   kd_weight: 1.0e-2
   kd_temperature: 0.2
+  num_cl_negatives: 256
+  view_cl_weight: 1.0e-3
   user_profile_views:
     - user_review_emb_s1.npy
     - user_review_emb_s2.npy
