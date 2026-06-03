@@ -2,63 +2,25 @@
 model_name: rgcl
 
 model:
-  # RGCL paper setting: user/item/review embedding size d = 64.
   hidden_dim: 64
-
-  # RGCL uses one review-aware message passing layer in the final architecture.
-  num_layers: 1
-
-  # Node dropout/search setting from the RGCL paper.
-  # The current RGCL implementation uses this value as graph-conv dropout.
-  dropout: 0.7
-  node_dropout: 0.7
-
-  # Loss weights in Eq. (10): L = L_main + alpha * L_ed + beta * L_nd.
-  # Default values follow the commonly used Digital Music reproduction setting.
-  lambda_ed: 1.0
-  lambda_nd: 0.3
-
-  # Paper implementation details.
-  rating_loss: mse
-  contrast_loss: bce_original_scale
-  review_encoder: bert_whitening
-  freeze_review_embedding: true
-  init: xavier
-  prediction: softmax_expected_rating
-
-  # Hyper-parameter search space reported in the paper.
-  search_space:
-    lambda_ed: [0.2, 0.4, 0.6, 0.8, 1.0, 2.0]
-    lambda_nd: [0.2, 0.4, 0.6, 0.8, 1.0]
-    node_dropout: [0.6, 0.7, 0.8, 0.9]
+  dropout: 0.6
+  lambda_ed: 0.8
+  lambda_nd: 0.6
 
 training:
-  # RGCL is forced to full-batch training in utils.get_dataloader().
-  # This value is kept only for config completeness and is ignored by RGCL.
+  # RGCL is full-batch by default in utils.get_dataloader().
+  # batch is ignored for rgcl, but kept to preserve the common config schema.
   batch: 0
   full_batch: true
-
   eval_batch: 512
-
-  # Original public-code style setting: one full-batch update per epoch.
   epoch: 400
-
   optimizer: Adam
   lr: 0.01
   weight_decay: 0.0
-
-  # The base trainer uses ExponentialLR every epoch; keep gamma=1.0 to avoid
-  # unintended per-epoch decay. Original plateau-style fields are kept below.
   lr_decay: 1.0
-  min_lr: 0.001
-  lr_decay_factor: 0.5
-  lr_decay_patience: 20
-
   grad_clip: 1.0
 
 evaluation:
-  # The paper reports rating prediction performance with MSE.
-  metric: mse
   eval_step: 1
   early_stop_patience: 50
 
