@@ -4,7 +4,7 @@ model_name: recafr
 
 model:
   embedding_dim: 32
-  num_layers: 3
+  num_layers: 2
   keep_rate: 0.8
   reg_weight: 1.0e-7
   kd_weight: 1.0e-2
@@ -19,17 +19,16 @@ model:
 data:
   dataset: Amazon_Office_Products_14
   type: bert
-  load_review_text: false
 
 training:
   lr: 0.001
-  batch: 64
+  batch: 256
   eval_batch: 256
   epoch: 3000
-  weight_decay: 0.0
+  weight_decay: 1e-4
   lr_decay: 1.0
   optimizer: Adam
 
 evaluation:
-  eval_step: 3
-  early_stop_patience: 5
+  eval_step: 1
+  early_stop_patience: 15
