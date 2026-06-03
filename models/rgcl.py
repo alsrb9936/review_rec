@@ -182,7 +182,9 @@ class RGCL(nn.Module):
         )
         self.rating_predictor = nn.Linear(self.hidden_dim, 1)
         self.review_proj = nn.Linear(self.review_dim, self.hidden_dim)
+    
 
+        # contrastive loss modules
         self.edge_contrast = ContrastLoss(self.hidden_dim)
         self.node_contrast = ContrastLoss(self.hidden_dim)
         self.rating_loss_fn = nn.MSELoss()

@@ -5,6 +5,8 @@ AGENTS.md
 *.txt
 *.csv
 *.npy
+run.log
+preprocess.log
 __pycache__
 .pdf
 /outputs
