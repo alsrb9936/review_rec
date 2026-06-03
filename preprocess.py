@@ -104,6 +104,9 @@ def main(cfg: DictConfig) -> None:
         glove_preprocess(train_df, valid_df, test_df, cfg)
     elif cfg.data.type == "bert":
         bert_preprocess(train_df, valid_df, test_df, cfg)
+    elif cfg.data.type == "sentiment":
+        # No additional preprocessing needed for sentiment-based model
+        pass
     else:
         print(cfg.data.type)
         print("Invalid data type specified. Please choose either 'glove' or 'bert'.")
