@@ -1,0 +1,37 @@
+# @package _global_
+
+model_name: recafr
+
+model:
+  embedding_dim: 32
+  num_layers: 3
+  keep_rate: 0.8
+  reg_weight: 1.0e-7
+  kd_weight: 1.0e-2
+  kd_temperature: 0.2
+  user_profile_views:
+    - user_review_emb_s1.npy
+    - user_review_emb_s2.npy
+  item_profile_views:
+    - item_review_emb_s1.npy
+    - item_review_emb_s2.npy
+  eval_k: [5, 10, 20]
+
+data:
+  dataset: Amazon_Office_Products_14
+  type: bert
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 4096
+  eval_batch: 1024
+  epoch: 3000
+  weight_decay: 0.0
+  lr_decay: 1.0
+  optimizer: Adam
+
+evaluation:
+  eval_step: 3
+  early_stop_patience: 5
+  k: [5, 10, 20]
