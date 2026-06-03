@@ -137,7 +137,7 @@ def _load_train_arrays(cfg):
     return user_ids, item_ids, ratings, review_feat
 
 
-def _node_norm(num_nodes: int, src_ids: np.ndarray) -> torch.Tensor:
+def _node_norm(num_nodes: int, src_ids) -> torch.Tensor:
     degree = np.bincount(src_ids, minlength=num_nodes).astype(np.float32)
     degree[degree == 0.0] = 1.0
     norm = 1.0 / np.sqrt(degree)
@@ -191,7 +191,7 @@ def build_rgcl_graph_from_train(cfg):
         review_dict[forward_etype] = feat
         review_dict[reverse_etype] = feat
 
-    graph = dgl.heterograph(
+    graph = getattr(dgl, "heterograph")(
         data_dict,
         num_nodes_dict={
             "user": num_users,
@@ -218,16 +218,24 @@ def build_rgcl_graph_from_train(cfg):
 
 def get_dataloader(cfg, model_name):
     dataset_cls = DATASET_DICT[model_name]
+
+    if str(model_name).lower() == "rgcl":
+        dataset = dataset_cls(cfg, split="train")
+        train_datas = getattr(dataset, "train_datas")
+        valid_datas = getattr(dataset, "valid_datas")
+        test_datas = getattr(dataset, "test_datas")
+        print(f"Train size: {len(train_datas[0])}")
+        print(f"Valid size: {len(valid_datas[0])}")
+        print(f"Test size: {len(test_datas[0])}")
+        print("RGCL full-batch graph training enabled")
+        return dataset, dataset, dataset
+
     train_dataset = dataset_cls(cfg, split="train")
     valid_dataset = dataset_cls(cfg, split="valid")
     test_dataset = dataset_cls(cfg, split="test")
 
-    if str(model_name).lower() == "rgcl":
-        train_batch_size = len(train_dataset)
-        train_shuffle = False
-    else:
-        train_batch_size = cfg.training.batch
-        train_shuffle = True
+    train_batch_size = cfg.training.batch
+    train_shuffle = True
 
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=train_shuffle)
     valid_loader = DataLoader(valid_dataset, batch_size=cfg.training.eval_batch, shuffle=False)
@@ -236,6 +244,4 @@ def get_dataloader(cfg, model_name):
     print(f"Train size: {len(train_dataset)}")
     print(f"Valid size: {len(valid_dataset)}")
     print(f"Test size: {len(test_dataset)}")
-    if str(model_name).lower() == "rgcl":
-        print(f"RGCL full-batch training enabled: batch_size={train_batch_size}")
     return train_loader, valid_loader, test_loader

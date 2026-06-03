@@ -6,6 +6,8 @@ model:
   dropout: 0.6
   lambda_ed: 0.8
   lambda_nd: 0.6
+  train_classification: true
+  distributed: false
 
 training:
   # RGCL is full-batch by default in utils.get_dataloader().
@@ -16,8 +18,11 @@ training:
   epoch: 400
   optimizer: Adam
   lr: 0.01
+  min_lr: 0.001
   weight_decay: 0.0
   lr_decay: 0.5
+  lr_decay_factor: 0.5
+  lr_decay_patience: 20
   grad_clip: 1.0
 
 evaluation:

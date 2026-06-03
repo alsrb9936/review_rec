@@ -5,6 +5,7 @@ from data.rgcl_dataset import RGCLDataset
 from data.daml_dataset import DAMLDataset
 from data.lightgcn_dataset import LightGCNDataset
 from data.transnet_dataset import TransNetDataset
+from data.mymodel_dataset import MyModelDataset
 
 DATASET_DICT = {
     "neumf": NeuMFDataset,
@@ -14,4 +15,5 @@ DATASET_DICT = {
     "daml": DAMLDataset,
     "lightgcn": LightGCNDataset,
     "transnet": TransNetDataset,
+    "mymodel": MyModelDataset
 }

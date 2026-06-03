@@ -1,47 +1,21 @@
-# models/rgcl.py
 import torch
 import torch.nn as nn
 import dgl.function as fn
 import dgl.nn.pytorch as dglnn
 
-from utils.utils import build_rgcl_graph_from_train, infer_review_dim, rating_to_etype_name
+from utils.utils import rating_to_etype_name
 
 
-class ContrastLoss(nn.Module):
-    def __init__(self, dim: int):
+class GCMCGraphConv(nn.Module):
+    """Review-aware graph convolution used by the original RGCL code."""
+
+    def __init__(self, num_src_nodes, review_dim, out_feats, dropout_rate=0.0):
         super().__init__()
-        self.w = nn.Parameter(torch.empty(dim, dim))
-        nn.init.xavier_uniform_(self.w)
-        self.loss_fn = nn.BCEWithLogitsLoss(reduction="none")
-
-    def forward(self, x, y, y_neg=None):
-        pos_score = (x @ self.w * y).sum(dim=-1)
-        pos_loss = self.loss_fn(pos_score, torch.ones_like(pos_score))
-
-        if y_neg is None:
-            perm = torch.randperm(y.size(0), device=y.device)
-            y_neg = y[perm]
-        neg_score = (x @ self.w * y_neg).sum(dim=-1)
-        neg_loss = self.loss_fn(neg_score, torch.zeros_like(neg_score))
-
-        return pos_loss + neg_loss
-
-
-class ReviewAwareGraphConv(nn.Module):
-    """Rating-specific DGL relation module used inside HeteroGraphConv."""
-
-    def __init__(self, num_src_nodes: int, review_dim: int, hidden_dim: int, dropout: float):
-        super().__init__()
-        self.num_src_nodes = int(num_src_nodes)
-        self.review_dim = int(review_dim)
-        self.hidden_dim = int(hidden_dim)
-
-        self.weight = nn.Parameter(torch.empty(self.num_src_nodes, self.hidden_dim))
-        self.prob_score = nn.Linear(self.review_dim, 1, bias=False)
-        self.review_score = nn.Linear(self.review_dim, 1, bias=False)
-        self.review_w = nn.Linear(self.review_dim, self.hidden_dim, bias=False)
-        self.dropout = nn.Dropout(float(dropout))
-
+        self.weight = nn.Parameter(torch.empty(int(num_src_nodes), int(out_feats)))
+        self.prob_score = nn.Linear(int(review_dim), 1, bias=False)
+        self.review_score = nn.Linear(int(review_dim), 1, bias=False)
+        self.review_w = nn.Linear(int(review_dim), int(out_feats), bias=False)
+        self.dropout = nn.Dropout(float(dropout_rate))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -54,7 +28,6 @@ class ReviewAwareGraphConv(nn.Module):
         with graph.local_scope():
             graph.srcdata["h"] = self.weight
             review_feat = graph.edata["review_feat"]
-
             graph.edata["pa"] = torch.sigmoid(self.prob_score(review_feat))
             graph.edata["rf"] = self.review_w(review_feat) * torch.sigmoid(
                 self.review_score(review_feat)
@@ -62,187 +35,187 @@ class ReviewAwareGraphConv(nn.Module):
 
             def message_func(edges):
                 message = edges.src["h"] * edges.data["pa"] + edges.data["rf"]
-                message = self.dropout(message) * edges.src["cj"]
+                message = message * self.dropout(edges.src["cj"])
                 return {"m": message}
 
-            graph.update_all(message_func, fn.sum(msg="m", out="h"))
+            graph.update_all(message_func, getattr(fn, "sum")(msg="m", out="h"))
             return graph.dstdata["h"] * graph.dstdata["ci"]
 
 
-class RGCLGraphEncoder(nn.Module):
-    def __init__(
-        self,
-        num_users,
-        num_items,
-        review_dim,
-        hidden_dim,
-        dropout,
-        rating_values,
-    ):
+class GCMCLayer(nn.Module):
+    def __init__(self, rating_vals, num_users, num_movies, review_dim, out_units, dropout_rate=0.0):
         super().__init__()
-
-        self.num_users = int(num_users)
-        self.num_items = int(num_items)
-        self.review_dim = int(review_dim)
-        self.hidden_dim = int(hidden_dim)
-        self.rating_values = [float(r) for r in rating_values]
-        self.etype_names = [rating_to_etype_name(r) for r in self.rating_values]
+        self.rating_vals = [float(rating) for rating in rating_vals]
+        self.user_fc = nn.Linear(int(out_units), int(out_units))
+        self.movie_fc = nn.Linear(int(out_units), int(out_units))
+        self.dropout = nn.Dropout(float(dropout_rate))
 
         sub_conv = {}
-        for etype in self.etype_names:
-            sub_conv[etype] = ReviewAwareGraphConv(
-                num_src_nodes=self.num_users,
-                review_dim=self.review_dim,
-                hidden_dim=self.hidden_dim,
-                dropout=dropout,
+        for rating in self.rating_vals:
+            etype = rating_to_etype_name(rating)
+            sub_conv[etype] = GCMCGraphConv(
+                num_src_nodes=num_users,
+                review_dim=review_dim,
+                out_feats=out_units,
+                dropout_rate=dropout_rate,
             )
-            sub_conv[f"rev-{etype}"] = ReviewAwareGraphConv(
-                num_src_nodes=self.num_items,
-                review_dim=self.review_dim,
-                hidden_dim=self.hidden_dim,
-                dropout=dropout,
+            sub_conv[f"rev-{etype}"] = GCMCGraphConv(
+                num_src_nodes=num_movies,
+                review_dim=review_dim,
+                out_feats=out_units,
+                dropout_rate=dropout_rate,
             )
 
         self.conv = dglnn.HeteroGraphConv(sub_conv, aggregate="sum")
-        self.user_fc = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.item_fc = nn.Linear(self.hidden_dim, self.hidden_dim)
         self.activation = nn.GELU()
-        self.dropout = nn.Dropout(float(dropout))
-
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.user_fc.weight)
-        nn.init.xavier_uniform_(self.item_fc.weight)
-        nn.init.zeros_(self.user_fc.bias)
-        nn.init.zeros_(self.item_fc.bias)
+        for parameter in self.parameters():
+            if parameter.dim() > 1:
+                nn.init.xavier_uniform_(parameter)
 
-    def forward(self, graph):
-        dummy_inputs = {
-            "user": torch.empty(self.num_users, 0, device=graph.device),
-            "item": torch.empty(self.num_items, 0, device=graph.device),
-        }
-        out_feats = self.conv(graph, dummy_inputs)
+    def forward(self, graph, ufeat=None, ifeat=None):
+        in_feats = {"user": ufeat, "movie": ifeat}
+        out_feats = self.conv(graph, in_feats)
+        user_feat = out_feats["user"].view(out_feats["user"].shape[0], -1)
+        movie_feat = out_feats["movie"].view(out_feats["movie"].shape[0], -1)
 
-        user_out = out_feats["user"]
-        item_out = out_feats["item"]
+        user_feat = self.user_fc(self.dropout(self.activation(user_feat)))
+        movie_feat = self.movie_fc(self.dropout(self.activation(movie_feat)))
+        return user_feat, movie_feat
 
-        user_out = self.user_fc(self.dropout(self.activation(user_out)))
-        item_out = self.item_fc(self.dropout(self.activation(item_out)))
-        return user_out, item_out
+
+class ContrastLoss(nn.Module):
+    def __init__(self, feat_size):
+        super().__init__()
+        self.w = nn.Parameter(torch.empty(int(feat_size), int(feat_size)))
+        self.bce_loss = nn.BCEWithLogitsLoss(reduction="none")
+        nn.init.xavier_uniform_(self.w)
+
+    def forward(self, x, y, y_neg=None):
+        scores = (x @ self.w * y).sum(1)
+        pos_loss = self.bce_loss(scores, torch.ones_like(scores))
+
+        if y_neg is None:
+            idx = torch.randperm(y.shape[0], device=y.device)
+            y_neg = y[idx, :]
+        neg_scores = (x @ self.w * y_neg).sum(1)
+        neg_loss = self.bce_loss(neg_scores, torch.zeros_like(neg_scores))
+        return pos_loss + neg_loss
+
+
+class MLPPredictorMI(nn.Module):
+    def __init__(self, in_units, review_dim, num_classes, dropout_rate=0.0):
+        super().__init__()
+        self.dropout = nn.Dropout(float(dropout_rate))
+        self.review_proj = nn.Linear(int(review_dim), int(in_units), bias=False)
+        self.contrast_loss = ContrastLoss(in_units)
+        self.linear = nn.Sequential(
+            nn.Linear(int(in_units) * 2, int(in_units), bias=False),
+            nn.ReLU(),
+            nn.Linear(int(in_units), int(in_units), bias=False),
+        )
+        self.predictor = nn.Linear(int(in_units), int(num_classes), bias=False)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for parameter in self.parameters():
+            if parameter.dim() > 1:
+                nn.init.xavier_uniform_(parameter)
+
+    @staticmethod
+    def neg_sampling(graph):
+        review_feat = graph.edata["review_feat"]
+        return review_feat[torch.randperm(review_feat.shape[0], device=review_feat.device), :]
+
+    def apply_edges(self, edges):
+        h_u = edges.src["h"]
+        h_v = edges.dst["h"]
+        h_fea = self.linear(torch.cat([h_u, h_v], dim=1))
+        score = self.predictor(h_fea).squeeze()
+
+        if "neg_review_feat" in edges.data:
+            review_feat = self.review_proj(edges.data["review_feat"])
+            neg_review_feat = self.review_proj(edges.data["neg_review_feat"])
+            mi_score = self.contrast_loss(h_fea, review_feat, neg_review_feat)
+            return {"score": score, "mi_score": mi_score}
+        return {"score": score}
+
+    def forward(self, graph, ufeat, ifeat, cal_edge_mi=True):
+        with graph.local_scope():
+            graph.nodes["user"].data["h"] = ufeat
+            graph.nodes["movie"].data["h"] = ifeat
+
+            if cal_edge_mi and "review_feat" in graph.edata:
+                graph.edata["neg_review_feat"] = self.neg_sampling(graph)
+
+            graph.apply_edges(self.apply_edges)
+            if "mi_score" in graph.edata:
+                return graph.edata["score"], graph.edata["mi_score"]
+            return graph.edata["score"]
 
 
 class RGCL(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-
         self.cfg = cfg
-        self.rgcl_graph = build_rgcl_graph_from_train(cfg)
-        self.dgl_graph = self.rgcl_graph["dgl_graph"]
+        self.encoder = None
+        self.decoder = None
+        self.contrast_loss = None
+        self.rating_vals = None
+        self.train_classification = bool(cfg.model.get("train_classification", True))
+        self.distributed = bool(cfg.model.get("distributed", False))
 
-        self.num_users = int(cfg.stats.num_users)
-        self.num_items = int(cfg.stats.num_items)
-        self.review_dim = infer_review_dim(cfg)
-        self.hidden_dim = int(cfg.model.hidden_dim)
-        self.dropout = float(cfg.model.dropout)
+    def configure_from_dataset(self, dataset):
+        rating_vals = dataset.possible_rating_values
+        out_units = int(self.cfg.model.hidden_dim)
+        dropout = float(self.cfg.model.dropout)
+        review_dim = int(dataset.review_fea_size)
 
-        self.lambda_ed = float(cfg.model.lambda_ed)
-        self.lambda_nd = float(cfg.model.lambda_nd)
-
-        self.rating_values = torch.tensor(
-            self.rgcl_graph["rating_values"],
-            dtype=torch.float32,
+        self.rating_vals = torch.tensor(rating_vals, dtype=torch.float32)
+        self.encoder = GCMCLayer(
+            rating_vals=rating_vals,
+            num_users=dataset.num_user,
+            num_movies=dataset.num_movie,
+            review_dim=review_dim,
+            out_units=out_units,
+            dropout_rate=dropout,
         )
-        self.num_ratings = int(len(self.rgcl_graph["rating_values"]))
-
-        self.encoder = RGCLGraphEncoder(
-            num_users=self.num_users,
-            num_items=self.num_items,
-            review_dim=self.review_dim,
-            hidden_dim=self.hidden_dim,
-            dropout=self.dropout,
-            rating_values=self.rgcl_graph["rating_values"],
+        num_outputs = len(rating_vals) if self.train_classification else 1
+        self.decoder = MLPPredictorMI(
+            in_units=out_units,
+            review_dim=review_dim,
+            num_classes=num_outputs,
+            dropout_rate=dropout,
         )
+        self.contrast_loss = ContrastLoss(out_units)
+        return self
 
-        self.pair_proj = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim, bias=False),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim, bias=False),
-        )
-        self.rating_predictor = nn.Linear(self.hidden_dim, self.num_ratings, bias=False)
-        self.review_proj = nn.Linear(self.review_dim, self.hidden_dim, bias=False)
+    def forward(self, enc_graph, dec_graph, ufeat=None, ifeat=None, cal_edge_mi=True):
+        if self.encoder is None or self.decoder is None:
+            raise RuntimeError("RGCL must be configured with configure_from_dataset() before forward().")
 
-        self.edge_contrast = ContrastLoss(self.hidden_dim)
-        self.node_contrast = ContrastLoss(self.hidden_dim)
-        self.rating_loss_fn = nn.MSELoss()
+        user_out, movie_out = self.encoder(enc_graph, ufeat, ifeat)
+        if cal_edge_mi:
+            pred_ratings, mi_score = self.decoder(dec_graph, user_out, movie_out, cal_edge_mi=True)
+            return pred_ratings, mi_score, user_out, movie_out
 
-        self.reset_parameters()
+        pred_ratings = self.decoder(dec_graph, user_out, movie_out, cal_edge_mi=False)
+        return pred_ratings, user_out, movie_out
 
-    def reset_parameters(self):
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
+    def expected_rating(self, pred_ratings):
+        if self.rating_vals is None:
+            raise RuntimeError("RGCL rating values are not configured.")
+        rating_vals = self.rating_vals.to(pred_ratings.device)
+        if self.train_classification:
+            return (torch.softmax(pred_ratings, dim=1) * rating_vals.view(1, -1)).sum(dim=1)
+        return pred_ratings.view(-1)
 
-    def set_graph_device(self, device):
-        self.dgl_graph = self.dgl_graph.to(device)
-        self.rgcl_graph["dgl_graph"] = self.dgl_graph
-        self.rating_values = self.rating_values.to(device)
+    @property
+    def lambda_ed(self):
+        return float(self.cfg.model.lambda_ed)
 
-    def encode(self):
-        return self.encoder(self.dgl_graph)
-
-    def make_pair_repr(self, user_emb, item_emb, user_id, item_id):
-        user_feat = user_emb[user_id]
-        item_feat = item_emb[item_id]
-        pair_feat = torch.cat([user_feat, item_feat], dim=-1)
-        return self.pair_proj(pair_feat)
-
-    def decode_logits(self, user_emb, item_emb, user_id, item_id):
-        edge_h = self.make_pair_repr(user_emb, item_emb, user_id, item_id)
-        logits = self.rating_predictor(edge_h)
-        return logits, edge_h
-
-    def logits_to_expected_rating(self, logits):
-        rating_values = self.rating_values.to(logits.device)
-        return (torch.softmax(logits, dim=-1) * rating_values.view(1, -1)).sum(dim=-1)
-
-    def forward(self, user_id, item_id):
-        user_emb, item_emb = self.encode()
-        logits, _ = self.decode_logits(user_emb, item_emb, user_id, item_id)
-        return self.logits_to_expected_rating(logits)
-
-    def calculate_loss(self, user_id, item_id, rating, review_feat):
-        user_emb1, item_emb1 = self.encode()
-        user_emb2, item_emb2 = self.encode()
-
-        logits1, edge_h1 = self.decode_logits(user_emb1, item_emb1, user_id, item_id)
-        logits2, edge_h2 = self.decode_logits(user_emb2, item_emb2, user_id, item_id)
-
-        pred1 = self.logits_to_expected_rating(logits1)
-        pred2 = self.logits_to_expected_rating(logits2)
-
-        rating_loss = (
-            self.rating_loss_fn(pred1, rating)
-            + self.rating_loss_fn(pred2, rating)
-        ) / 2.0
-
-        review_h = self.review_proj(review_feat)
-        ed_loss = (
-            self.edge_contrast(edge_h1, review_h).mean()
-            + self.edge_contrast(edge_h2, review_h).mean()
-        ) / 2.0
-
-        nd_user_loss = self.node_contrast(user_emb1, user_emb2).mean()
-        nd_item_loss = self.node_contrast(item_emb1, item_emb2).mean()
-        nd_loss = (nd_user_loss + nd_item_loss) / 2.0
-
-        total_loss = rating_loss + self.lambda_ed * ed_loss + self.lambda_nd * nd_loss
-
-        return {
-            "loss": total_loss,
-            "rating_loss": rating_loss.detach(),
-            "ed_loss": ed_loss.detach(),
-            "nd_loss": nd_loss.detach(),
-        }
+    @property
+    def lambda_nd(self):
+        return float(self.cfg.model.lambda_nd)
