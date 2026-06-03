@@ -12,24 +12,19 @@ class ContrastLoss(nn.Module):
         super().__init__()
         self.w = nn.Parameter(torch.empty(dim, dim))
         nn.init.xavier_uniform_(self.w)
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction="none")
 
-    def forward(self, x, y):
+    def forward(self, x, y, y_neg=None):
         pos_score = (x @ self.w * y).sum(dim=-1)
+        pos_loss = self.loss_fn(pos_score, torch.ones_like(pos_score))
 
-        perm = torch.randperm(y.size(0), device=y.device)
-        y_neg = y[perm]
+        if y_neg is None:
+            perm = torch.randperm(y.size(0), device=y.device)
+            y_neg = y[perm]
         neg_score = (x @ self.w * y_neg).sum(dim=-1)
+        neg_loss = self.loss_fn(neg_score, torch.zeros_like(neg_score))
 
-        logits = torch.cat([pos_score, neg_score], dim=0)
-        labels = torch.cat(
-            [
-                torch.ones_like(pos_score),
-                torch.zeros_like(neg_score),
-            ],
-            dim=0,
-        )
-        return self.loss_fn(logits, labels)
+        return pos_loss + neg_loss
 
 
 class ReviewAwareGraphConv(nn.Module):
@@ -41,8 +36,6 @@ class ReviewAwareGraphConv(nn.Module):
         self.review_dim = int(review_dim)
         self.hidden_dim = int(hidden_dim)
 
-        # Same structure as ReviewGraph: each rating relation owns its own
-        # source-node free embedding matrix.
         self.weight = nn.Parameter(torch.empty(self.num_src_nodes, self.hidden_dim))
         self.prob_score = nn.Linear(self.review_dim, 1, bias=False)
         self.review_score = nn.Linear(self.review_dim, 1, bias=False)
@@ -125,8 +118,6 @@ class RGCLGraphEncoder(nn.Module):
         nn.init.zeros_(self.item_fc.bias)
 
     def forward(self, graph):
-        # HeteroGraphConv requires an input dictionary, but each relation module
-        # owns and uses its source-node embedding matrix.
         dummy_inputs = {
             "user": torch.empty(self.num_users, 0, device=graph.device),
             "item": torch.empty(self.num_items, 0, device=graph.device),
@@ -173,7 +164,6 @@ class RGCL(nn.Module):
             rating_values=self.rgcl_graph["rating_values"],
         )
 
-        # Same decoder input style as the original ReviewGraph code: [user, item].
         self.pair_proj = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim, bias=False),
             nn.ReLU(),
@@ -240,12 +230,12 @@ class RGCL(nn.Module):
 
         review_h = self.review_proj(review_feat)
         ed_loss = (
-            self.edge_contrast(edge_h1, review_h)
-            + self.edge_contrast(edge_h2, review_h)
+            self.edge_contrast(edge_h1, review_h).mean()
+            + self.edge_contrast(edge_h2, review_h).mean()
         ) / 2.0
 
-        nd_user_loss = self.node_contrast(user_emb1, user_emb2)
-        nd_item_loss = self.node_contrast(item_emb1, item_emb2)
+        nd_user_loss = self.node_contrast(user_emb1, user_emb2).mean()
+        nd_item_loss = self.node_contrast(item_emb1, item_emb2).mean()
         nd_loss = (nd_user_loss + nd_item_loss) / 2.0
 
         total_loss = rating_loss + self.lambda_ed * ed_loss + self.lambda_nd * nd_loss
