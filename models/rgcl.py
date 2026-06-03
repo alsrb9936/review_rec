@@ -4,7 +4,7 @@ import torch.nn as nn
 import dgl.function as fn
 import dgl.nn.pytorch as dglnn
 
-from utils.rgcl_graph import build_rgcl_graph_from_train, infer_review_dim, rating_to_etype_name
+from utils.utils import build_rgcl_graph_from_train, infer_review_dim, rating_to_etype_name
 
 
 class ContrastLoss(nn.Module):
