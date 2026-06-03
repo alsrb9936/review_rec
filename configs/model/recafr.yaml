@@ -15,7 +15,6 @@ model:
   item_profile_views:
     - item_review_emb_s1.npy
     - item_review_emb_s2.npy
-  eval_k: [5, 10, 20]
 
 data:
   dataset: Amazon_Office_Products_14
@@ -34,4 +33,3 @@ training:
 evaluation:
   eval_step: 3
   early_stop_patience: 5
-  k: [5, 10, 20]
