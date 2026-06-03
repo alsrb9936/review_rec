@@ -30,8 +30,8 @@ class LightGCNEncoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.normal_(self.user_embedding.weight, std=0.1)
-        nn.init.normal_(self.item_embedding.weight, std=0.1)
+        nn.init.xavier_uniform_(self.user_embedding.weight, std=0.1)
+        nn.init.xavier_uniform_(self.item_embedding.weight, std=0.1)
 
     def get_all_embeddings(self):
         embeddings = torch.cat(

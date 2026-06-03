@@ -3,13 +3,13 @@
 model_name: recafr
 
 model:
-  embedding_dim: 32
+  embedding_dim: 64
   num_layers: 2
   keep_rate: 0.8
   reg_weight: 1.0e-7
   kd_weight: 1.0e-2
   kd_temperature: 0.2
-  num_cl_negatives: 256
+  num_cl_negatives: 64
   view_cl_weight: 1.0e-3
   user_profile_views:
     - user_review_emb_s1.npy
@@ -24,10 +24,10 @@ data:
 
 training:
   lr: 0.001
-  batch: 256
+  batch: 64
   eval_batch: 256
   epoch: 3000
-  weight_decay: 1e-4
+  weight_decay: 1e-5
   lr_decay: 1.0
   optimizer: Adam
 

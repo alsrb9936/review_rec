@@ -3,8 +3,8 @@
 model_name: lightgcn
 
 model:
-  embedding_dim: 32
-  num_layers: 3
+  embedding_dim: 64
+  num_layers: 2
 
 data:
   load_review_text: false
