@@ -38,6 +38,52 @@ def info_nce_loss(
     return (-numerator + torch.logsumexp(denominator, dim=-1)).mean()
 
 
+def sampled_info_nce_loss(
+    query_emb: torch.Tensor,
+    pos_key_emb: torch.Tensor,
+    all_key_emb: torch.Tensor,
+    pos_ids: torch.Tensor,
+    num_negatives: int,
+    temperature: float,
+) -> torch.Tensor:
+    """InfoNCE with explicit sampled negatives.
+
+    The positive key is placed at logit column 0. Negative ids are sampled from
+    the same entity table and corrected when a sampled id equals the positive id.
+    """
+
+    if int(num_negatives) <= 0:
+        return info_nce_loss(query_emb, pos_key_emb, all_key_emb, temperature)
+
+    query_emb = F.normalize(query_emb, dim=-1)
+    pos_key_emb = F.normalize(pos_key_emb, dim=-1)
+    all_key_emb = F.normalize(all_key_emb, dim=-1)
+
+    batch_size = query_emb.size(0)
+    num_all = all_key_emb.size(0)
+    device = query_emb.device
+    pos_ids = pos_ids.view(-1).long()
+
+    neg_ids = torch.randint(
+        low=0,
+        high=num_all,
+        size=(batch_size, int(num_negatives)),
+        device=device,
+    )
+    neg_ids = torch.where(
+        neg_ids == pos_ids.unsqueeze(1),
+        (neg_ids + 1) % num_all,
+        neg_ids,
+    )
+
+    neg_key_emb = all_key_emb[neg_ids]
+    pos_logits = torch.sum(query_emb * pos_key_emb, dim=-1, keepdim=True)
+    neg_logits = torch.bmm(neg_key_emb, query_emb.unsqueeze(-1)).squeeze(-1)
+    logits = torch.cat([pos_logits, neg_logits], dim=1) / temperature
+    labels = torch.zeros(batch_size, dtype=torch.long, device=device)
+    return F.cross_entropy(logits, labels)
+
+
 def _load_view_stack(cfg, names_key: str, default_names: list[str], expected_rows: int, label: str):
     data_type = str(cfg.data.get("type", "bert"))
     if data_type.lower() in {"none", "null", ""}:
@@ -69,12 +115,12 @@ def _load_view_stack(cfg, names_key: str, default_names: list[str], expected_row
 
 
 class RecAFR(nn.Module):
-    """Rating-prediction RecAFR/LightGCN+ model using two semantic views.
+    """Rating-prediction RecAFR/LightGCN+ model using semantic views.
 
     The BERT files ``user_review_emb_s1.npy``/``user_review_emb_s2.npy`` and
     ``item_review_emb_s1.npy``/``item_review_emb_s2.npy`` are kept as separate
-    views. Each view is projected by a shared profile MLP and used as a KD target
-    for the graph embedding. The rating objective remains MSE.
+    views. Graph-to-view KD and view-to-view CL both use explicit sampled
+    negatives. The rating objective remains MSE.
     """
 
     def __init__(self, cfg, norm_adj: torch.Tensor):
@@ -88,6 +134,8 @@ class RecAFR(nn.Module):
         self.reg_weight = float(cfg.model.reg_weight)
         self.kd_weight = float(cfg.model.kd_weight)
         self.kd_temperature = float(cfg.model.kd_temperature)
+        self.num_cl_negatives = int(cfg.model.get("num_cl_negatives", 256))
+        self.view_cl_weight = float(cfg.model.get("view_cl_weight", 0.0))
 
         self.user_embedding = nn.Embedding(self.num_users, self.embedding_dim)
         self.item_embedding = nn.Embedding(self.num_items, self.embedding_dim)
@@ -168,16 +216,25 @@ class RecAFR(nn.Module):
             item_view_embeds.append(self.profile_mlp(self.item_profile_views[view_idx]))
         return user_view_embeds, item_view_embeds
 
+    def _predict_from_embeddings(
+        self,
+        user_id: torch.Tensor,
+        item_id: torch.Tensor,
+        user_emb: torch.Tensor,
+        item_emb: torch.Tensor,
+    ) -> torch.Tensor:
+        rating_pred = torch.sum(user_emb * item_emb, dim=-1)
+        rating_pred = rating_pred + self.user_bias(user_id).squeeze(-1)
+        rating_pred = rating_pred + self.item_bias(item_id).squeeze(-1)
+        return rating_pred + self.global_bias
+
     def forward(self, user_id: torch.Tensor, item_id: torch.Tensor) -> torch.Tensor:
         user_id = user_id.view(-1).long()
         item_id = item_id.view(-1).long()
         user_all, item_all = self.get_all_embeddings(keep_rate=1.0 if not self.training else self.keep_rate)
         user_emb = user_all[user_id]
         item_emb = item_all[item_id]
-        rating_pred = torch.sum(user_emb * item_emb, dim=-1)
-        rating_pred = rating_pred + self.user_bias(user_id).squeeze(-1)
-        rating_pred = rating_pred + self.item_bias(item_id).squeeze(-1)
-        return rating_pred + self.global_bias
+        return self._predict_from_embeddings(user_id, item_id, user_emb, item_emb)
 
     def calculate_loss(
         self,
@@ -189,7 +246,10 @@ class RecAFR(nn.Module):
         item_id = item_id.view(-1).long()
         rating = rating.view(-1).float()
 
-        prediction = self.forward(user_id=user_id, item_id=item_id)
+        user_all, item_all = self.get_all_embeddings(keep_rate=self.keep_rate if self.training else 1.0)
+        user_emb = user_all[user_id]
+        item_emb = item_all[item_id]
+        prediction = self._predict_from_embeddings(user_id, item_id, user_emb, item_emb)
         mse_loss = self.loss_fn(prediction, rating)
 
         reg_loss = self.reg_weight * (
@@ -197,35 +257,90 @@ class RecAFR(nn.Module):
             + self.item_embedding(item_id).pow(2).sum()
         ) / max(user_id.numel(), 1)
 
-        user_all, item_all = self.get_all_embeddings(keep_rate=1.0)
-        user_emb = user_all[user_id]
-        item_emb = item_all[item_id]
         user_view_embeds, item_view_embeds = self.get_profile_view_embeddings()
 
         kd_terms = []
         for user_profile_all, item_profile_all in zip(user_view_embeds, item_view_embeds):
             kd_terms.append(
-                info_nce_loss(
-                    user_emb,
-                    user_profile_all[user_id],
-                    user_profile_all,
-                    self.kd_temperature,
+                sampled_info_nce_loss(
+                    query_emb=user_emb,
+                    pos_key_emb=user_profile_all[user_id],
+                    all_key_emb=user_profile_all,
+                    pos_ids=user_id,
+                    num_negatives=self.num_cl_negatives,
+                    temperature=self.kd_temperature,
                 )
             )
             kd_terms.append(
-                info_nce_loss(
-                    item_emb,
-                    item_profile_all[item_id],
-                    item_profile_all,
-                    self.kd_temperature,
+                sampled_info_nce_loss(
+                    query_emb=item_emb,
+                    pos_key_emb=item_profile_all[item_id],
+                    all_key_emb=item_profile_all,
+                    pos_ids=item_id,
+                    num_negatives=self.num_cl_negatives,
+                    temperature=self.kd_temperature,
                 )
             )
         kd_loss = torch.stack(kd_terms).mean() * self.kd_weight
 
-        total_loss = mse_loss + reg_loss + kd_loss
+        if self.view_cl_weight > 0.0 and self.view_num > 1:
+            view_cl_terms = []
+            for view_idx in range(self.view_num - 1):
+                next_idx = view_idx + 1
+                user_view_a = user_view_embeds[view_idx]
+                user_view_b = user_view_embeds[next_idx]
+                item_view_a = item_view_embeds[view_idx]
+                item_view_b = item_view_embeds[next_idx]
+
+                view_cl_terms.append(
+                    sampled_info_nce_loss(
+                        query_emb=user_view_a[user_id],
+                        pos_key_emb=user_view_b[user_id],
+                        all_key_emb=user_view_b,
+                        pos_ids=user_id,
+                        num_negatives=self.num_cl_negatives,
+                        temperature=self.kd_temperature,
+                    )
+                )
+                view_cl_terms.append(
+                    sampled_info_nce_loss(
+                        query_emb=user_view_b[user_id],
+                        pos_key_emb=user_view_a[user_id],
+                        all_key_emb=user_view_a,
+                        pos_ids=user_id,
+                        num_negatives=self.num_cl_negatives,
+                        temperature=self.kd_temperature,
+                    )
+                )
+                view_cl_terms.append(
+                    sampled_info_nce_loss(
+                        query_emb=item_view_a[item_id],
+                        pos_key_emb=item_view_b[item_id],
+                        all_key_emb=item_view_b,
+                        pos_ids=item_id,
+                        num_negatives=self.num_cl_negatives,
+                        temperature=self.kd_temperature,
+                    )
+                )
+                view_cl_terms.append(
+                    sampled_info_nce_loss(
+                        query_emb=item_view_b[item_id],
+                        pos_key_emb=item_view_a[item_id],
+                        all_key_emb=item_view_a,
+                        pos_ids=item_id,
+                        num_negatives=self.num_cl_negatives,
+                        temperature=self.kd_temperature,
+                    )
+                )
+            view_cl_loss = torch.stack(view_cl_terms).mean() * self.view_cl_weight
+        else:
+            view_cl_loss = torch.zeros((), device=user_emb.device)
+
+        total_loss = mse_loss + reg_loss + kd_loss + view_cl_loss
         return total_loss, {
             "loss": float(total_loss.detach().cpu()),
             "mse_loss": float(mse_loss.detach().cpu()),
             "reg_loss": float(reg_loss.detach().cpu()),
             "kd_loss": float(kd_loss.detach().cpu()),
+            "view_cl_loss": float(view_cl_loss.detach().cpu()),
         }
