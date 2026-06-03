@@ -9,6 +9,7 @@ from models.rgcl import RGCL
 from models.mymodel_v1 import MyModelV1
 from models.letter import LETTER
 from models.recafr import RecAFR
+from models.rmg import RMG
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -21,4 +22,5 @@ MODEL_DICT = {
     "mymodel_v1": MyModelV1,
     "letter": LETTER,
     "recafr": RecAFR,
+    "rmg": RMG,
 }
