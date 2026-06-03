@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import numpy as np
 import torch
@@ -35,41 +36,6 @@ def info_nce_loss(
     numerator = torch.sum(query_emb * key_emb, dim=-1) / temperature
     denominator = query_emb @ all_key_emb.t() / temperature
     return (-numerator + torch.logsumexp(denominator, dim=-1)).mean()
-
-
-def build_recafr_norm_adj(cfg) -> torch.Tensor:
-    data_type = str(cfg.data.get("type", "bert"))
-    if data_type.lower() in {"none", "null", ""}:
-        data_type = "bert"
-    data_dir = os.path.join(cfg.data.root, cfg.data.dataset, data_type)
-
-    user_path = os.path.join(data_dir, "train_user_id.npy")
-    item_path = os.path.join(data_dir, "train_item_id.npy")
-    if not os.path.exists(user_path):
-        raise FileNotFoundError(f"Missing train user file: {user_path}")
-    if not os.path.exists(item_path):
-        raise FileNotFoundError(f"Missing train item file: {item_path}")
-
-    user_ids = np.load(user_path).astype(np.int64)
-    item_ids = np.load(item_path).astype(np.int64)
-    num_users = int(cfg.stats.num_users)
-    num_items = int(cfg.stats.num_items)
-    num_nodes = num_users + num_items
-    item_nodes = item_ids + num_users
-
-    rows = np.concatenate([user_ids, item_nodes])
-    cols = np.concatenate([item_nodes, user_ids])
-    edge_index = torch.tensor(np.stack([rows, cols], axis=0), dtype=torch.long)
-    edge_weight = torch.ones(edge_index.shape[1], dtype=torch.float32)
-    adj = torch.sparse_coo_tensor(edge_index, edge_weight, size=(num_nodes, num_nodes)).coalesce()
-
-    deg = torch.sparse.sum(adj, dim=1).to_dense()
-    deg_inv_sqrt = torch.pow(deg, -0.5)
-    deg_inv_sqrt[torch.isinf(deg_inv_sqrt)] = 0.0
-
-    row, col = adj.indices()
-    values = adj.values() * deg_inv_sqrt[row] * deg_inv_sqrt[col]
-    return torch.sparse_coo_tensor(adj.indices(), values, size=adj.shape).coalesce()
 
 
 def _load_view_stack(cfg, names_key: str, default_names: list[str], expected_rows: int, label: str):
@@ -179,7 +145,7 @@ class RecAFR(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
-    def get_all_embeddings(self, keep_rate: float | None = None):
+    def get_all_embeddings(self, keep_rate: Optional[float] = None):
         if keep_rate is None:
             keep_rate = self.keep_rate if self.training else 1.0
 

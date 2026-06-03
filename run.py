@@ -11,8 +11,7 @@ from torch.utils.data import DataLoader
 from data import DATASET_DICT
 from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
-from utils.utils import set_seed, set_stats_from_npy, get_dataloader, build_lightgcn_norm_adj_from_train
-from models.recafr import build_recafr_norm_adj
+from utils.utils import set_seed, set_stats_from_npy, get_dataloader, build_lightgcn_norm_adj_from_train, build_recafr_norm_adj
 
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml"}
 def _maybe_report_training_state(cfg: DictConfig) -> bool:

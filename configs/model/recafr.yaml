@@ -23,8 +23,8 @@ data:
 
 training:
   lr: 0.001
-  batch: 4096
-  eval_batch: 1024
+  batch: 64
+  eval_batch: 256
   epoch: 3000
   weight_decay: 0.0
   lr_decay: 1.0
