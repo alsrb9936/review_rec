@@ -8,6 +8,7 @@ data:
   word_dim: 50
 
 model:
+  freeze_word_embedding: false
   num_filters: 100
   kernel_size: 3
   output_embedding_size: 50
@@ -17,6 +18,10 @@ model:
   rating_loss_weight: 1.0
   act_loss_weight: 1.0
   transform_loss_weight: 1.0
+
+stats:
+  num_users: 0
+  num_items: 0
 
 training:
   batch: 64

@@ -26,8 +26,7 @@ def bert_preprocess(train_df, valid_df, test_df, cfg):
     Returns:
         None
     """
-    output_dir = cfg.data.output_path
-    output_dir = os.path.join(output_dir, cfg.data.dataset, "bert")
+    output_dir = os.path.join(cfg.data.root, cfg.data.dataset, "bert")
     os.makedirs(output_dir, exist_ok=True)
     print("Starting BERT preprocessing...")
     # Implement BERT-specific preprocessing steps here
@@ -263,14 +262,17 @@ def transform_and_normalize(vecs, kernel=None, bias=None):
 
 def get_bert_whitening_embeddings(texts: Sequence[str], vec_dim: int = 128, batch_size: int = 32, gpu_id: int = 0):
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-    model = BertModel.from_pretrained("bert-base-uncased")
+    loaded_model = BertModel.from_pretrained("bert-base-uncased")
+    if not isinstance(loaded_model, BertModel):
+        raise TypeError("bert-base-uncased did not load as a BertModel")
+    model = loaded_model
 
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{gpu_id}")
     else:
         device = torch.device("cpu")
 
-    model.to(device)
+    torch.nn.Module.to(model, device)
     model.eval()
     model.config.output_hidden_states = True
 
@@ -284,7 +286,7 @@ def get_bert_whitening_embeddings(texts: Sequence[str], vec_dim: int = 128, batc
         attention_mask = encoded["attention_mask"].to(device)
 
         with torch.no_grad():
-            outputs = model(input_ids, attention_mask)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
 
         output1 = outputs.hidden_states[-2]
         output2 = outputs.hidden_states[-1]

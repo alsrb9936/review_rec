@@ -3,15 +3,15 @@
 model_name: lightgcn
 
 model:
-  embedding_dim: 64
-  num_layers: 2
+  embedding_dim: 32
+  num_layers: 3
 
 data:
   load_review_text: false
 
 training:
   lr: 0.001
-  batch: 128
+  batch: 64
   eval_batch: 256
   epoch: 400
   weight_decay: 1e-5

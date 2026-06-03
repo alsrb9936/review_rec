@@ -21,8 +21,7 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
     Returns:
         None
     """
-    output_dir = cfg.data.output_path
-    output_dir = os.path.join(output_dir, cfg.data.dataset, "glove")
+    output_dir = os.path.join(cfg.data.root, cfg.data.dataset, "glove")
     os.makedirs(output_dir, exist_ok=True)
     print("Starting GloVe preprocessing...")
     print("Cleaning and calculating max_len, max_count...")
@@ -45,6 +44,7 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
     pad_id = 0
     word_emb, word_dict = glove_load_embedding(cfg)
     word_emb = np.asarray(word_emb, dtype=np.float32)
+    np.save(os.path.join(output_dir, "word_emb.npy"), word_emb)
     train_df["review_ids"] = train_df["clean_review"].apply(lambda x: review2id(x, word_dict, pad_id))
     
     # 5. train 기준 entity docs 생성
@@ -72,21 +72,19 @@ def glove_preprocess(train_df, valid_df, test_df, cfg):
         pad_item_id=pad_item_id,
     )
 
-    print("Encoding target reviews... and saving target review doc and doc emb...")
+    print("Encoding target reviews and saving token ids...")
     train_target_doc = encode_target_reviews(train_df, review_length=max_review_len, pad_id=pad_id)
-    train_target_doc_emb = word_emb[train_target_doc]
-    np.save(os.path.join(output_dir, "train_target_doc.npy"), train_target_doc)
-    np.save(os.path.join(output_dir, "train_target_doc_emb.npy"),train_target_doc_emb.astype(np.float32))
+    np.save(os.path.join(output_dir, "train_target_doc.npy"), train_target_doc.astype(np.int64))
 
-    del train_target_doc, train_target_doc_emb
+    del train_target_doc
 
     print("Saving split docs...")
     print("Saving Train split docs...")
-    save_split_docs("train", train_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id, word_emb=word_emb)
+    save_split_docs("train", train_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir)
     print("Saving Valid split docs...")
-    save_split_docs("valid", valid_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id, word_emb=word_emb)
+    save_split_docs("valid", valid_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir)
     print("Saving Test split docs...")
-    save_split_docs("test", test_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir, review_length=max_review_len, pad_id=pad_id, word_emb=word_emb)
+    save_split_docs("test", test_df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, output_dir)
     
 def build_entity_docs_from_train(
     train_df,
@@ -135,7 +133,7 @@ def build_entity_docs_from_train(
     print("Entity docs built.")
     return user_doc, item_doc   
 
-def save_split_docs(split_name, df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, save_dir, review_length, pad_id=0, word_emb=None):
+def save_split_docs(split_name, df, user_doc, item_doc, user_doc_item_ids, item_doc_user_ids, save_dir):
     """
     split별 row 순서에 맞춘 user_doc/item_doc 저장.
     valid/test도 user_doc, item_doc 자체는 train_df로 만든 것을 lookup한다.
@@ -153,18 +151,8 @@ def save_split_docs(split_name, df, user_doc, item_doc, user_doc_item_ids, item_
     user_doc_ids = user_doc[user_ids]
     item_doc_ids = item_doc[item_ids]
 
-    np.save(os.path.join(save_dir, f"{split_name}_user_doc.npy"), user_doc_ids)
-    np.save(os.path.join(save_dir, f"{split_name}_item_doc.npy"), item_doc_ids)
-
-
-    if word_emb is None:
-        raise ValueError("word_emb must be provided when save_doc_emb=True.")
-
-    user_doc_emb = word_emb[user_doc_ids]
-    item_doc_emb = word_emb[item_doc_ids]
-
-    np.save(os.path.join(save_dir, f"{split_name}_user_doc_emb.npy"),user_doc_emb.astype(np.float32))
-    np.save(os.path.join(save_dir, f"{split_name}_item_doc_emb.npy"),item_doc_emb.astype(np.float32))
+    np.save(os.path.join(save_dir, f"{split_name}_user_doc.npy"), user_doc_ids.astype(np.int64))
+    np.save(os.path.join(save_dir, f"{split_name}_item_doc.npy"), item_doc_ids.astype(np.int64))
 
     # NARRE용 doc id 저장
     np.save(os.path.join(save_dir, f"{split_name}_user_review_item_ids.npy"),user_doc_item_ids[user_ids])
@@ -329,5 +317,3 @@ def glove_clean_review(train_df, cfg):
         return " ".join(tokens)
 
     return train_df["review_text"].apply(clean_one)
-
-

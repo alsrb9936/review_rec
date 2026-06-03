@@ -85,15 +85,10 @@ def main(cfg: DictConfig) -> None:
         None
     """
     with open_dict(cfg):
-        cfg.data.data_root = "/home/infolab/mnt/mingyu/review_rec/dataset"
-        cfg.data.separator = "\t"
-        cfg.data.output_path = "/home/infolab/mnt/mingyu/review_rec/review_reproducibility/dataset"
-        cfg.data.glove_path = "/home/infolab/mnt/mingyu/review_rec/review_reproducibility/word2vec/glove.6B.50d.txt"
-        cfg.data.stopwords_path = "/home/infolab/mnt/mingyu/review_rec/review_reproducibility/word2vec/stopwords.txt"
-        cfg.data.punctuation_path = "/home/infolab/mnt/mingyu/review_rec/review_reproducibility/word2vec/punctuations.txt"
+        if "separator" not in cfg.data or cfg.data.separator is None:
+            cfg.data.separator = "\t"
     # Save preprocessed data
-    output_dir = cfg.data.output_path
-    output_dir = os.path.join(output_dir, cfg.data.dataset , "common")
+    output_dir = os.path.join(cfg.data.root, cfg.data.dataset, "common")
     if os.path.exists(os.path.join(output_dir, "train.csv")):
         print(f"Preprocessed data already exists at {output_dir}. Skipping preprocessing.")
         train_df, valid_df, test_df = load_preprocessed_data(output_dir)
@@ -115,5 +110,3 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
-
-

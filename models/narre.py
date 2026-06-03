@@ -4,6 +4,8 @@ import torch.nn.functional as F
 from omegaconf import DictConfig
 from typing import Optional
 
+from models.glove_embedding import build_glove_embedding
+
 
 class ReviewEncoder(torch.nn.Module):
     def __init__(
@@ -106,6 +108,7 @@ class NARRE(nn.Module):
         self.num_items = cfg.stats.num_items
         self.pad_user_id = self.num_users
         self.pad_item_id = self.num_items
+        self.word_embedding = build_glove_embedding(cfg)
 
         self.user_review_layer = ReviewEncoder(
             cfg,
@@ -137,13 +140,13 @@ class NARRE(nn.Module):
         item_id = item_id.view(-1)
 
         user_feature = self.user_review_layer(
-            user_review.float(),
+            self.word_embedding(user_review.long()),
             user_id,
             user_review_item_ids,
         )
 
         item_feature = self.item_review_layer(
-            item_review.float(),
+            self.word_embedding(item_review.long()),
             item_id,
             item_review_user_ids,
         )

@@ -7,6 +7,7 @@ from models.lightgcn import LightGCN
 from models.transnet import TransNet
 from models.rgcl import RGCL
 from models.mymodel import MyModel
+from models.letter import LETTER
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -16,5 +17,6 @@ MODEL_DICT = {
     "daml": DAML,
     "lightgcn": LightGCN,
     "transnet": TransNet,
-    "mymodel": MyModel
+    "mymodel": MyModel,
+    "letter": LETTER
 }

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
+from models.glove_embedding import build_glove_embedding
+
 
 class CNN(nn.Module):
     def __init__(self, cfg: DictConfig, word_dim: int):
@@ -77,21 +79,22 @@ class DeepCoNN(nn.Module):
         super().__init__()
 
         word_dim = int(cfg.data.word_dim)
+        self.word_embedding = build_glove_embedding(cfg)
         self.cnn_u = CNN(cfg, word_dim=word_dim)
         self.cnn_i = CNN(cfg, word_dim=word_dim)
         self.fm = FactorizationMachine(int(cfg.model.hidden_dim) * 2, 10)
         self.lossfn = nn.MSELoss()
 
     def forward(self, user_review: torch.Tensor, item_review: torch.Tensor) -> torch.Tensor:
-        # user_review, item_review: [batch_size, review_count, review_length, word_dim]
+        # user_review, item_review: [batch_size, review_count, review_length]
         if user_review.shape != item_review.shape:
             raise ValueError(
                 f"user_review and item_review shape mismatch: "
                 f"user={tuple(user_review.shape)}, item={tuple(item_review.shape)}"
             )
 
-        user_latent = self.cnn_u(user_review.float())
-        item_latent = self.cnn_i(item_review.float())
+        user_latent = self.cnn_u(self.word_embedding(user_review.long()))
+        item_latent = self.cnn_i(self.word_embedding(item_review.long()))
 
         concat_latent = torch.cat((user_latent, item_latent), dim=1)
         prediction = self.fm(concat_latent)

@@ -17,20 +17,20 @@ class DAMLDataset(Dataset):
         self.user_ids = torch.tensor(user_ids, dtype=torch.long)
         self.item_ids = torch.tensor(item_ids, dtype=torch.long)
         self.ratings = torch.tensor(ratings, dtype=torch.float32)
-        self.user_docs = torch.tensor(user_docs, dtype=torch.float32)
-        self.item_docs = torch.tensor(item_docs, dtype=torch.float32)
+        self.user_docs = torch.tensor(user_docs, dtype=torch.long)
+        self.item_docs = torch.tensor(item_docs, dtype=torch.long)
 
         assert len(self.user_ids) == len(self.item_ids) == len(self.ratings)
         assert len(self.user_ids) == len(self.user_docs) == len(self.item_docs)
 
-        if self.user_docs.ndim != 3:
+        if self.user_docs.ndim != 2:
             raise ValueError(
-                f"user_docs must be 3D [num_samples, doc_len, word_dim], "
+                f"user_docs must be 2D [num_samples, doc_len], "
                 f"got {tuple(self.user_docs.shape)}"
             )
-        if self.item_docs.ndim != 3:
+        if self.item_docs.ndim != 2:
             raise ValueError(
-                f"item_docs must be 3D [num_samples, doc_len, word_dim], "
+                f"item_docs must be 2D [num_samples, doc_len], "
                 f"got {tuple(self.item_docs.shape)}"
             )
         if self.user_docs.shape[1:] != self.item_docs.shape[1:]:
@@ -41,7 +41,7 @@ class DAMLDataset(Dataset):
 
         with open_dict(self.cfg):
             self.cfg.data.doc_len = int(self.user_docs.shape[1])
-            self.cfg.data.word_dim = int(self.user_docs.shape[2])
+            self.cfg.data.word_dim = self._load_word_dim()
 
     def __len__(self):
         return len(self.ratings)
@@ -64,8 +64,8 @@ class DAMLDataset(Dataset):
         user_id_path = os.path.join(data_dir, f"{split}_user_id.npy")
         item_id_path = os.path.join(data_dir, f"{split}_item_id.npy")
         rating_path = os.path.join(data_dir, f"{split}_rating.npy")
-        user_doc_path = os.path.join(data_dir, f"{split}_user_doc_emb.npy")
-        item_doc_path = os.path.join(data_dir, f"{split}_item_doc_emb.npy")
+        user_doc_path = os.path.join(data_dir, f"{split}_user_doc.npy")
+        item_doc_path = os.path.join(data_dir, f"{split}_item_doc.npy")
 
         required_paths = [
             user_id_path,
@@ -78,8 +78,8 @@ class DAMLDataset(Dataset):
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Missing DAML dataset file: {path}")
 
-        user_docs = np.load(user_doc_path).astype(np.float32)
-        item_docs = np.load(item_doc_path).astype(np.float32)
+        user_docs = np.load(user_doc_path).astype(np.int64)
+        item_docs = np.load(item_doc_path).astype(np.int64)
 
         user_docs = self._to_daml_doc(user_docs)
         item_docs = self._to_daml_doc(item_docs)
@@ -93,13 +93,20 @@ class DAMLDataset(Dataset):
         )
 
     @staticmethod
-    def _to_daml_doc(docs: np.ndarray) -> np.ndarray:
-        if docs.ndim == 3:
+    def _to_daml_doc(docs):
+        if docs.ndim == 2:
             return docs
-        if docs.ndim == 4:
-            num_samples, review_count, review_length, word_dim = docs.shape
-            return docs.reshape(num_samples, review_count * review_length, word_dim)
+        if docs.ndim == 3:
+            num_samples, review_count, review_length = docs.shape
+            return docs.reshape(num_samples, review_count * review_length)
         raise ValueError(
-            f"DAML doc embedding must be 3D [N, doc_len, word_dim] or "
-            f"4D [N, review_count, review_length, word_dim], got {docs.shape}"
+            f"DAML token doc must be 2D [N, doc_len] or "
+            f"3D [N, review_count, review_length], got {docs.shape}"
         )
+
+    def _load_word_dim(self) -> int:
+        data_dir = os.path.join(self.cfg.data.root, self.cfg.data.dataset, self.cfg.data.type)
+        word_emb_path = os.path.join(data_dir, "word_emb.npy")
+        if not os.path.exists(word_emb_path):
+            raise FileNotFoundError(f"Missing word_emb.npy: {word_emb_path}. Run GloVe preprocessing again.")
+        return int(np.load(word_emb_path, mmap_mode="r").shape[1])

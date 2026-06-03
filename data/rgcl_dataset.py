@@ -20,7 +20,7 @@ def rating_to_etype_name(rating):
     return str(value).replace(".", "_")
 
 
-class RGCLDataset(Dataset[object]):
+class RGCLDataset(Dataset):
     def __init__(self, cfg, split: str = "train"):
         self.cfg = cfg
         self.data_dir = _get_data_dir(cfg)

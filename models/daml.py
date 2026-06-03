@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
+from models.glove_embedding import build_glove_embedding
+
 
 class DAML(nn.Module):
     def __init__(self, cfg: DictConfig):
@@ -18,6 +20,7 @@ class DAML(nn.Module):
 
         self.num_users = int(cfg.stats.num_users)
         self.num_items = int(cfg.stats.num_items)
+        self.word_embedding = build_glove_embedding(cfg)
 
         word_cnn_padding = (self.kernel_size // 2, 0)
         self.word_cnn = nn.Conv2d(
@@ -131,8 +134,8 @@ class DAML(nn.Module):
         user_id = user_id.view(-1)
         item_id = item_id.view(-1)
 
-        user_word_embs = user_doc.float()
-        item_word_embs = item_doc.float()
+        user_word_embs = self.word_embedding(user_doc.long())
+        item_word_embs = self.word_embedding(item_doc.long())
 
         if user_word_embs.ndim != 3:
             raise ValueError(f"user_doc must be [batch_size, doc_len, word_dim], got {tuple(user_word_embs.shape)}")

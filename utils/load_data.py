@@ -8,9 +8,7 @@ from omegaconf import DictConfig, open_dict
 from sklearn.model_selection import train_test_split
 
 def _apply_id_mapping(interactions: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    #### 경로수정경로수정경로수정
-    output_dir = cfg.data.output_path
-    mapping_dir = os.path.join(output_dir, cfg.data.dataset, "mappings")
+    mapping_dir = os.path.join(cfg.data.root, cfg.data.dataset, "mappings")
     os.makedirs(mapping_dir, exist_ok=True)
     mapping_path = os.path.join(mapping_dir, "id_mappings.pkl")
     ####

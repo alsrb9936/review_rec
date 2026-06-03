@@ -18,17 +18,15 @@ class DeepCoNNDataset(Dataset):
         self.item_ids = torch.tensor(item_ids, dtype=torch.long)
         self.ratings = torch.tensor(ratings, dtype=torch.float32)
 
-        # Precomputed GloVe document embeddings.
-        # Shape: [num_samples, review_count, review_length, word_dim]
-        self.user_reviews = torch.tensor(user_reviews, dtype=torch.float32)
-        self.item_reviews = torch.tensor(item_reviews, dtype=torch.float32)
+        self.user_reviews = torch.tensor(user_reviews, dtype=torch.long)
+        self.item_reviews = torch.tensor(item_reviews, dtype=torch.long)
 
         assert len(self.user_ids) == len(self.item_ids) == len(self.ratings)
         assert len(self.user_ids) == len(self.user_reviews) == len(self.item_reviews)
 
         review_count = int(self.user_reviews.shape[1])
         review_length = int(self.user_reviews.shape[2])
-        word_dim = int(self.user_reviews.shape[3])
+        word_dim = self._load_word_dim()
 
         with open_dict(self.cfg):
             self.cfg.data.review_count = review_count
@@ -62,8 +60,8 @@ class DeepCoNNDataset(Dataset):
         user_id_path = os.path.join(data_dir, f"{split}_user_id.npy")
         item_id_path = os.path.join(data_dir, f"{split}_item_id.npy")
         rating_path = os.path.join(data_dir, f"{split}_rating.npy")
-        user_doc_path = os.path.join(data_dir, f"{split}_user_doc_emb.npy")
-        item_doc_path = os.path.join(data_dir, f"{split}_item_doc_emb.npy")
+        user_doc_path = os.path.join(data_dir, f"{split}_user_doc.npy")
+        item_doc_path = os.path.join(data_dir, f"{split}_item_doc.npy")
 
         required_paths = [
             user_id_path,
@@ -79,7 +77,14 @@ class DeepCoNNDataset(Dataset):
         user_ids = np.load(user_id_path)
         item_ids = np.load(item_id_path)
         ratings = np.load(rating_path)
-        user_reviews = np.load(user_doc_path).astype(np.float32)
-        item_reviews = np.load(item_doc_path).astype(np.float32)
+        user_reviews = np.load(user_doc_path).astype(np.int64)
+        item_reviews = np.load(item_doc_path).astype(np.int64)
 
         return user_ids, item_ids, ratings, user_reviews, item_reviews
+
+    def _load_word_dim(self) -> int:
+        data_dir = os.path.join(self.cfg.data.root, self.cfg.data.dataset, self.cfg.data.type)
+        word_emb_path = os.path.join(data_dir, "word_emb.npy")
+        if not os.path.exists(word_emb_path):
+            raise FileNotFoundError(f"Missing word_emb.npy: {word_emb_path}. Run GloVe preprocessing again.")
+        return int(np.load(word_emb_path, mmap_mode="r").shape[1])

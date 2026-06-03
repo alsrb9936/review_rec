@@ -23,7 +23,12 @@ evaluation:
   early_stop_patience: 10
 
 data:
-  root: /home/infolab/mnt/mingyu/review_rec/review_reproducibility/dataset
+  root: ./dataset
+  data_root: ./raw_dataset
+  separator: "\t"
+  glove_path: ./word2vec/glove.6B.50d.txt
+  stopwords_path: ./word2vec/stopwords.txt
+  punctuation_path: ./word2vec/punctuations.txt
   dataset: Amazon_All_Beauty_18
   type: None
 
