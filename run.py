@@ -12,6 +12,7 @@ from data import DATASET_DICT
 from models import MODEL_DICT
 from trainer import MODEL_TRAINER_DICT
 from utils.utils import set_seed, set_stats_from_npy, get_dataloader, build_lightgcn_norm_adj_from_train
+from models.recafr import build_recafr_norm_adj
 
 REVIEW_TEXT_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml"}
 def _maybe_report_training_state(cfg: DictConfig) -> bool:
@@ -69,15 +70,16 @@ def main(cfg: DictConfig) -> None:
 
     cfg = set_stats_from_npy(cfg)
 
-
     train_loader, valid_loader, test_loader = get_dataloader(cfg, model_name)
-
 
     model_cls = MODEL_DICT[model_name]
     trainer_cls = MODEL_TRAINER_DICT[model_name]
 
     if model_name == "lightgcn":
         norm_adj = build_lightgcn_norm_adj_from_train(cfg).to(device)
+        model = model_cls(cfg, norm_adj).to(device)
+    elif model_name == "recafr":
+        norm_adj = build_recafr_norm_adj(cfg).to(device)
         model = model_cls(cfg, norm_adj).to(device)
     else:
         model = model_cls(cfg).to(device)
