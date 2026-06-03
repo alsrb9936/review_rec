@@ -8,6 +8,7 @@ from data.transnet_dataset import TransNetDataset
 from data.letter_dataset import LETTERDataset
 from data.mymodel_v1_dataset import MyModelV1Dataset
 from data.recafr_dataset import RecAFRDataset
+from data.rmg_dataset import RMGDataset
 
 DATASET_DICT = {
     "neumf": NeuMFDataset,
@@ -20,4 +21,5 @@ DATASET_DICT = {
     "mymodel_v1": MyModelV1Dataset,
     "letter": LETTERDataset,
     "recafr": RecAFRDataset,
+    "rmg": RMGDataset,
 }
