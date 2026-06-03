@@ -8,6 +8,7 @@ from models.transnet import TransNet
 from models.rgcl import RGCL
 from models.mymodel_v1 import MyModelV1
 from models.letter import LETTER
+from models.recafr import RecAFR
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -18,5 +19,6 @@ MODEL_DICT = {
     "lightgcn": LightGCN,
     "transnet": TransNet,
     "mymodel_v1": MyModelV1,
-    "letter": LETTER
+    "letter": LETTER,
+    "recafr": RecAFR,
 }
