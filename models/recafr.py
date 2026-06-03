@@ -22,12 +22,6 @@ class SparseAdjEdgeDrop(nn.Module):
         ).coalesce()
 
 
-def bpr_loss(user_emb: torch.Tensor, pos_emb: torch.Tensor, neg_emb: torch.Tensor) -> torch.Tensor:
-    pos_scores = torch.sum(user_emb * pos_emb, dim=-1)
-    neg_scores = torch.sum(user_emb * neg_emb, dim=-1)
-    return F.softplus(neg_scores - pos_scores).mean()
-
-
 def info_nce_loss(
     query_emb: torch.Tensor,
     key_emb: torch.Tensor,
@@ -130,12 +124,11 @@ def _load_profile_views(cfg):
 
 
 class RecAFR(nn.Module):
-    """RecAFR/LightGCN+ style recommender with review-profile distillation.
+    """Rating-prediction RecAFR/LightGCN+ model.
 
-    The supplied Amazon BERT ``*_emb_s1.npy`` and ``*_emb_s2.npy`` files are
-    treated as two semantic views and averaged before the projection MLP. This
-    keeps the interface close to the provided LightGCN_plus code while fitting
-    this repository's Hydra-based training pipeline.
+    It predicts explicit ratings with an MSE objective. The ``*_emb_s1.npy`` and
+    ``*_emb_s2.npy`` files are used as two semantic views, averaged, projected by
+    an MLP, and distilled into graph embeddings with InfoNCE.
     """
 
     def __init__(self, cfg, norm_adj: torch.Tensor):
@@ -152,7 +145,11 @@ class RecAFR(nn.Module):
 
         self.user_embedding = nn.Embedding(self.num_users, self.embedding_dim)
         self.item_embedding = nn.Embedding(self.num_items, self.embedding_dim)
+        self.user_bias = nn.Embedding(self.num_users, 1)
+        self.item_bias = nn.Embedding(self.num_items, 1)
+        self.global_bias = nn.Parameter(torch.zeros(1))
         self.edge_dropper = SparseAdjEdgeDrop()
+        self.loss_fn = nn.MSELoss()
         self.register_buffer("norm_adj", norm_adj.coalesce(), persistent=False)
 
         user_profile, item_profile = _load_profile_views(cfg)
@@ -171,6 +168,8 @@ class RecAFR(nn.Module):
     def _init_weights(self):
         nn.init.xavier_uniform_(self.user_embedding.weight)
         nn.init.xavier_uniform_(self.item_embedding.weight)
+        nn.init.zeros_(self.user_bias.weight)
+        nn.init.zeros_(self.item_bias.weight)
         for module in self.profile_mlp:
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -195,50 +194,53 @@ class RecAFR(nn.Module):
     def get_profile_embeddings(self):
         return self.profile_mlp(self.user_profile), self.profile_mlp(self.item_profile)
 
+    def forward(self, user_id: torch.Tensor, item_id: torch.Tensor) -> torch.Tensor:
+        user_id = user_id.view(-1).long()
+        item_id = item_id.view(-1).long()
+        user_all, item_all = self.get_all_embeddings(keep_rate=1.0 if not self.training else self.keep_rate)
+        user_emb = user_all[user_id]
+        item_emb = item_all[item_id]
+        rating_pred = torch.sum(user_emb * item_emb, dim=-1)
+        rating_pred = rating_pred + self.user_bias(user_id).squeeze(-1)
+        rating_pred = rating_pred + self.item_bias(item_id).squeeze(-1)
+        return rating_pred + self.global_bias
+
     def calculate_loss(
         self,
         user_id: torch.Tensor,
-        pos_item_id: torch.Tensor,
-        neg_item_id: torch.Tensor,
+        item_id: torch.Tensor,
+        rating: torch.Tensor,
     ):
         user_id = user_id.view(-1).long()
-        pos_item_id = pos_item_id.view(-1).long()
-        neg_item_id = neg_item_id.view(-1).long()
+        item_id = item_id.view(-1).long()
+        rating = rating.view(-1).float()
 
-        user_all, item_all = self.get_all_embeddings(keep_rate=self.keep_rate)
-        user_emb = user_all[user_id]
-        pos_emb = item_all[pos_item_id]
-        neg_emb = item_all[neg_item_id]
+        prediction = self.forward(user_id=user_id, item_id=item_id)
+        mse_loss = self.loss_fn(prediction, rating)
 
-        loss_bpr = bpr_loss(user_emb, pos_emb, neg_emb)
         loss_reg = self.reg_weight * (
             self.user_embedding(user_id).pow(2).sum()
-            + self.item_embedding(pos_item_id).pow(2).sum()
-            + self.item_embedding(neg_item_id).pow(2).sum()
+            + self.item_embedding(item_id).pow(2).sum()
         ) / max(user_id.numel(), 1)
 
+        user_all, item_all = self.get_all_embeddings(keep_rate=1.0)
         user_profile_all, item_profile_all = self.get_profile_embeddings()
+        user_emb = user_all[user_id]
+        item_emb = item_all[item_id]
         user_profile = user_profile_all[user_id]
-        pos_profile = item_profile_all[pos_item_id]
-        neg_profile = item_profile_all[neg_item_id]
+        item_profile = item_profile_all[item_id]
 
-        loss_kd = (
+        kd_loss = (
             info_nce_loss(user_emb, user_profile, user_profile_all, self.kd_temperature)
-            + info_nce_loss(pos_emb, pos_profile, item_profile_all, self.kd_temperature)
-            + info_nce_loss(neg_emb, neg_profile, item_profile_all, self.kd_temperature)
-        ) / 3.0
-        loss_kd = self.kd_weight * loss_kd
+            + info_nce_loss(item_emb, item_profile, item_profile_all, self.kd_temperature)
+        ) / 2.0
+        kd_loss = self.kd_weight * kd_loss
 
-        total_loss = loss_bpr + loss_reg + loss_kd
+        total_loss = mse_loss + loss_reg + kd_loss
         loss_dict = {
             "loss": float(total_loss.detach().cpu()),
-            "bpr_loss": float(loss_bpr.detach().cpu()),
+            "mse_loss": float(mse_loss.detach().cpu()),
             "reg_loss": float(loss_reg.detach().cpu()),
-            "kd_loss": float(loss_kd.detach().cpu()),
+            "kd_loss": float(kd_loss.detach().cpu()),
         }
         return total_loss, loss_dict
-
-    def predict_all(self, user_id: torch.Tensor) -> torch.Tensor:
-        user_id = user_id.view(-1).long()
-        user_all, item_all = self.get_all_embeddings(keep_rate=1.0)
-        return user_all[user_id] @ item_all.t()
