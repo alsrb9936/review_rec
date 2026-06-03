@@ -8,6 +8,7 @@ from trainer.lightgcn_trainer import LightGCNTrainer
 from trainer.transnet_trainer import TransNetTrainer
 from trainer.mymodel_v1_trainer import MyModelV1Trainer
 from trainer.letter_trainer import LETTERTrainer
+from trainer.recafr_trainer import RecAFRTrainer
 
 MODEL_TRAINER_DICT = {
     "neumf": NeuMFTrainer,
@@ -18,5 +19,6 @@ MODEL_TRAINER_DICT = {
     "lightgcn": LightGCNTrainer,
     "transnet": TransNetTrainer,
     "mymodel_v1": MyModelV1Trainer,
-    "letter": LETTERTrainer
+    "letter": LETTERTrainer,
+    "recafr": RecAFRTrainer,
 }
