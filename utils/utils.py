@@ -11,8 +11,7 @@ from torch.utils.data import DataLoader
 
 
 from data import DATASET_DICT
-from models import MODEL_DICT
-from trainer import MODEL_TRAINER_DICT
+
 
 GLOVE_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml", "neumf", "lightgcn"}
 BERT_MODEL_NAMES = {"rgcl", "letter", "recafr"}

@@ -5,6 +5,7 @@ from models.rgcl import RGCL
 from models.daml import DAML
 from models.lightgcn import LightGCN
 from models.transnet import TransNet
+from models.rgcl import RGCL
 
 MODEL_DICT = {
     "neumf": NeuMF,
