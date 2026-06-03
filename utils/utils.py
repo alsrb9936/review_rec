@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from data import DATASET_DICT
 
 
-GLOVE_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml", "neumf", "lightgcn"}
+GLOVE_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml", "neumf", "lightgcn", "rmg"}
 BERT_MODEL_NAMES = {"rgcl", "letter", "recafr", "mymodel_v1"}
 
 
@@ -67,7 +67,6 @@ def build_recafr_norm_adj(cfg) -> torch.Tensor:
     if data_type.lower() in {"none", "null", ""}:
         data_type = "bert"
     data_dir = os.path.join(cfg.data.root, cfg.data.dataset, data_type)
-
     user_path = os.path.join(data_dir, "train_user_id.npy")
     item_path = os.path.join(data_dir, "train_item_id.npy")
     if not os.path.exists(user_path):
@@ -95,6 +94,7 @@ def build_recafr_norm_adj(cfg) -> torch.Tensor:
     row, col = adj.indices()
     values = adj.values() * deg_inv_sqrt[row] * deg_inv_sqrt[col]
     return torch.sparse_coo_tensor(adj.indices(), values, size=adj.shape).coalesce()
+
 
 def build_lightgcn_norm_adj_from_train(cfg: DictConfig) -> torch.Tensor:
     data_dir = os.path.join(cfg.data.root, cfg.data.dataset, cfg.data.type)
