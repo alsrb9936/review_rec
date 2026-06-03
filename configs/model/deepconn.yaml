@@ -10,10 +10,10 @@ model:
   dropout: 0.5
 
 training:
-  batch: 256
+  batch: 32
   eval_batch: 256
   epoch: 600
   lr: 0.002
-  weight_decay: 1e-6
+  weight_decay: 1e-3
   lr_decay: 0.99  
   optimizer: Adam
