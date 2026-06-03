@@ -1,0 +1,27 @@
+# @package _global_
+
+model_name: rmg
+
+model:
+  cnn_dim: 100
+  id_dim: 100
+  kernel_size: 3
+  dropout: 0.2
+  freeze_word_embedding: false
+
+data:
+  dataset: Amazon_Office_Products_14
+  type: glove
+
+training:
+  lr: 0.001
+  batch: 24
+  eval_batch: 24
+  epoch: 100
+  weight_decay: 0.0
+  lr_decay: 1.0
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10
