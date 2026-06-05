@@ -8,19 +8,28 @@ model:
   mlp_hidden_size: [64, 32]
   dropout: 0.3
 
+  # Main selective-alignment objective.
   lambda_pair_align: 0.01
-  lambda_review_rating: 0.1
-  lambda_distill: 0.01
 
-  temperature: 0.2
-  subspace_rank: 16
+  # Make review_shared rating-relevant.
+  lambda_shared_rating: 0.01
 
-  # shared / orthogonal / full / weighted
-  review_mode: shared
+  # Preserve review semantics and prevent decomposition collapse.
+  lambda_reconstruct: 0.05
+  lambda_residual_cf_decor: 0.01
+  lambda_shared_residual_decor: 0.005
+  lambda_gate_balance: 0.001
+  lambda_component_var: 0.001
 
-  # review_mode=weighted일 때만 의미 있음
+  # Selective gate / variance regularization.
+  gate_target: 0.5
+  min_component_std: 0.05
+
+  # By default, align only review_shared.
+  # Increase this only for an ablation that injects residual into the alignment target.
   orthogonal_residual_weight: 0.0
 
+  temperature: 0.2
   orthogonal_eps: 1e-8
   rating_loss: mse
 
