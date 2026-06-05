@@ -175,10 +175,12 @@ class CFARG(nn.Module):
             else:
                 user_gate = self._make_gate(user_cf_gate, user_proj, self.user_gate)
                 item_gate = self._make_gate(item_cf_gate, item_proj, self.item_gate)
-                user_injection = self.review_scale * user_gate * user_proj
-                item_injection = self.review_scale * item_gate * item_proj
-                user_z = user_cf + user_injection
-                item_z = item_cf + item_injection
+                cf_score = torch.sum(user_cf * item_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
+
+                user_review_score = torch.sum(user_gate * user_proj * item_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
+                item_review_score = torch.sum(item_gate * item_proj * user_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
+
+                score = cf_score + self.review_scale * (user_review_score + item_review_score)
 
         score = torch.sum(user_z * item_z, dim=-1) / math.sqrt(float(self.embedding_dim))
         bias = self.global_bias + self.user_bias(user_id).squeeze(-1) + self.item_bias(item_id).squeeze(-1)
