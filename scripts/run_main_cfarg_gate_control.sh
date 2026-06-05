@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEVICE="${DEVICE:-0}"
+DEVICE="${DEVICE:-1}"
+SYNC_SPLITS_FROM_COMMON="${SYNC_SPLITS_FROM_COMMON:-true}"
 DATASETS=(
-  "Amazon_Musical_Instruments_14"
-  "Amazon_Office_Products_14"
-  "Amazon_Digital_Music_14"
+  # "Amazon_Musical_Instruments_14"
+  # "Amazon_Office_Products_14"
+  # "Amazon_Digital_Music_14"
+  "Amazon_Instant_Video_14"
 )
 SEEDS=(42 43 44)
 
@@ -22,9 +24,13 @@ COMMON_OVERRIDES=(
   "training.lr=0.001"
   "training.weight_decay=1e-4"
   "training.grad_clip=1.0"
+  "data.exclude_target_review=false"
 )
 
 for dataset in "${DATASETS[@]}"; do
+  if [[ "${SYNC_SPLITS_FROM_COMMON}" == "true" ]]; then
+    python scripts/sync_cfarg_bert_splits_from_common.py --dataset "${dataset}"
+  fi
   for seed in "${SEEDS[@]}"; do
     python run.py model=cfarg_cf_only data.dataset="${dataset}" experiment.seed="${seed}" "${COMMON_OVERRIDES[@]}"
     python run.py model=cfarg_fusion data.dataset="${dataset}" experiment.seed="${seed}" "${COMMON_OVERRIDES[@]}"
