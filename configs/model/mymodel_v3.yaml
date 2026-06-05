@@ -1,0 +1,32 @@
+# @package _global_
+
+model_name: mymodel_v3
+
+model:
+  d_id: 64
+  d_model: 128
+  d_text: 64
+  dropout: 0.6
+  num_layers: 2
+  eps: 1e-8
+  subspace_rank: 4
+  lambda_side_align: 0.01
+  contrast_tau: 0.2
+  alpha_init: 0.5
+
+data:
+  type: bert
+
+training:
+  lr: 0.001
+  batch: 128
+  eval_batch: 512
+  epoch: 200
+  weight_decay: 1e-3
+  lr_decay: 0.99
+  optimizer: Adam
+  grad_clip: 1.0
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10

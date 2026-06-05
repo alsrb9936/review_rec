@@ -1,0 +1,6 @@
+{
+  "mode": "negative",
+  "id_semantics": "zero-based row index aligned with common/test.csv and model test_*.npy files",
+  "num_consistent": 860,
+  "num_inconsistent": 166
+}

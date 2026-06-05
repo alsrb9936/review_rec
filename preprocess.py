@@ -9,6 +9,7 @@ import pandas as pd
 from utils.load_data import load_interaction_data, split_by_ratio
 from utils.glove_pro import glove_preprocess
 from utils.bert_pro import bert_preprocess
+from utils.sentiment_pro import sentiment_preprocess
 
 import hydra
 from omegaconf import DictConfig, open_dict
@@ -105,11 +106,10 @@ def main(cfg: DictConfig) -> None:
     elif cfg.data.type == "bert":
         bert_preprocess(train_df, valid_df, test_df, cfg)
     elif cfg.data.type == "sentiment":
-        # No additional preprocessing needed for sentiment-based model
-        pass
+        sentiment_preprocess(train_df, valid_df, test_df, cfg)
     else:
         print(cfg.data.type)
-        print("Invalid data type specified. Please choose either 'glove' or 'bert'.")
+        print("Invalid data type specified. Please choose 'glove', 'bert', or 'sentiment'.")
 
 if __name__ == "__main__":
     main()

@@ -6,12 +6,12 @@ model:
   embedding_dim: 64
   num_layers: 2
   review_layers: 0
-  review_dropout: 0.3
+  review_dropout: 0.5
   lambda_user_align: 0.05
   lambda_item_align: 0.05
   temperature: 0.2
   rating_loss: mse
-
+  detach_option : False
 data:
   type: bert
   load_review_text: false

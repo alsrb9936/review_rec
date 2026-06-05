@@ -9,7 +9,10 @@ from data.letter_dataset import LETTERDataset
 from data.mymodel_v1_dataset import MyModelV1Dataset
 from data.recafr_dataset import RecAFRDataset
 from data.rmg_dataset import RMGDataset
-
+from data.mymodel_v2_dataset import MyModelV2Dataset
+from data.mymodel_v3_dataset import MyModelV3Dataset
+from data.mymodel_v4_dataset import MyModelV4Dataset
+from data.mymodel_v5_dataset import MyModelV5Dataset
 DATASET_DICT = {
     "neumf": NeuMFDataset,
     "deepconn": DeepCoNNDataset,
@@ -22,4 +25,8 @@ DATASET_DICT = {
     "letter": LETTERDataset,
     "recafr": RecAFRDataset,
     "rmg": RMGDataset,
+    "mymodel_v2": MyModelV2Dataset,
+    "mymodel_v3": MyModelV3Dataset,
+    "mymodel_v4": MyModelV4Dataset,
+    "mymodel_v5": MyModelV5Dataset,
 }

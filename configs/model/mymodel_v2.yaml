@@ -1,0 +1,31 @@
+# @package _global_
+
+model_name: mymodel_v2
+
+model:
+  embedding_dim: 64
+  num_layers: 1
+  review_layers: 1
+  review_dropout: 0.5
+  lambda_pair_align: 0.01
+  orthogonal_residual_weight: 0
+  contrast_tau: 0.2
+  orthogonal_eps: 1e-8
+  rating_loss: mse
+  detach_option : False
+data:
+  type: bert
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 128
+  eval_batch: 512
+  epoch: 200
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 15

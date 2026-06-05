@@ -1,8 +1,9 @@
+import os
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
-
 from models.glove_embedding import build_glove_embedding
 
 

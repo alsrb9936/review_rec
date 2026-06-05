@@ -1,0 +1,38 @@
+# @package _global_
+
+model_name: mymodel_v4
+
+model:
+  # NeuMF CF latent
+  mf_embedding_size: 64
+  mlp_embedding_size: 64
+  mlp_hidden_size: [64, 32]
+  dropout: 0.8
+
+  # Review -> CF latent projection
+  lambda_pair_align: 0.001
+  temperature: 0.2
+
+  # Orthogonal decomposition
+  orthogonal_residual_weight: 0
+  orthogonal_eps: 1e-8
+
+  rating_loss: mse
+
+data:
+  type: bert
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 64
+  eval_batch: 512
+  epoch: 200
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+  grad_clip: 1.0
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10

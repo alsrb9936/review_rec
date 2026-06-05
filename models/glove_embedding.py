@@ -1,9 +1,8 @@
 import os
-
 import numpy as np
 import torch
 import torch.nn as nn
-
+from omegaconf import DictConfig
 
 def build_glove_embedding(cfg) -> nn.Embedding:
     data_dir = os.path.join(cfg.data.root, cfg.data.dataset, cfg.data.type)

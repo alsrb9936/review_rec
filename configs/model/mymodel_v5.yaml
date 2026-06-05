@@ -1,0 +1,43 @@
+# @package _global_
+
+model_name: mymodel_v5
+
+model:
+  mf_embedding_size: 64
+  mlp_embedding_size: 64
+  mlp_hidden_size: [64, 32]
+  dropout: 0.3
+
+  lambda_pair_align: 0.01
+  lambda_review_rating: 0.1
+  lambda_distill: 0.01
+
+  temperature: 0.2
+  subspace_rank: 16
+
+  # shared / orthogonal / full / weighted
+  review_mode: shared
+
+  # review_mode=weighted일 때만 의미 있음
+  orthogonal_residual_weight: 0.0
+
+  orthogonal_eps: 1e-8
+  rating_loss: mse
+
+data:
+  type: bert
+  load_review_text: false
+
+training:
+  lr: 0.001
+  batch: 64
+  eval_batch: 512
+  epoch: 200
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+  grad_clip: 1.0
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10

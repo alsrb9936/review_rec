@@ -3,10 +3,10 @@ model_name: rgcl
 
 model:
   hidden_dim: 128
-  dropout: 0.6
+  dropout: 0.3
   lambda_ed: 0.8
   lambda_nd: 0.6
-  train_classification: true
+  train_classification: false
   distributed: false
 
 training:
@@ -22,12 +22,12 @@ training:
   weight_decay: 0.0
   lr_decay: 0.5
   lr_decay_factor: 0.5
-  lr_decay_patience: 20
+  lr_decay_patience: 10
   grad_clip: 1.0
 
 evaluation:
   eval_step: 1
-  early_stop_patience: 50
+  early_stop_patience: 20
 
 experiment:
   seed: 42

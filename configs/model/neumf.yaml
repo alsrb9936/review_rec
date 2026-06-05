@@ -6,7 +6,7 @@ model:
   mf_embedding_size: 64
   mlp_embedding_size: 64
   mlp_hidden_size: [64, 32]
-  dropout: 0.3
+  dropout: 0.7
 
 data:
   load_review_text: false
@@ -16,7 +16,7 @@ training:
   batch: 64
   eval_batch: 256
   epoch: 150
-  weight_decay: 1e-5
+  weight_decay: 1e-4
   lr_decay: 0.99
   optimizer: Adam
 

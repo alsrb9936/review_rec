@@ -28,7 +28,7 @@ class DAMLTrainer(BaseTrainer):
         with torch.no_grad():
             for batch in data_loader:
                 batch = self._move_batch_to_device(batch)
-                pred = self.model(
+                pred = self.model.predict(
                     batch["user_id"],
                     batch["item_id"],
                     batch["user_doc"],

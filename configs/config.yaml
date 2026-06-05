@@ -21,6 +21,9 @@ training:
 evaluation:
   eval_step: 1
   early_stop_patience: 10
+  eval_only: false
+  checkpoint_path: null
+  sentiment_subset: null
 
 data:
   root: ./dataset
@@ -31,6 +34,10 @@ data:
   punctuation_path: ./word2vec/punctuations.txt
   dataset: Amazon_All_Beauty_18
   type: None
+
+sentiment:
+  model_name: cardiffnlp/twitter-roberta-large-topic-sentiment-latest
+  batch_size: 32
 
 experiment:
   seed: 42

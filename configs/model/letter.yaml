@@ -5,7 +5,7 @@ model:
   embedding_dim: 128
   hidden_dim: 64
   dropout: 0.3
-  edge_ratio: 50
+  edge_ratio: 30
 
 data:
   type: bert
@@ -15,7 +15,7 @@ training:
   batch: 64
   eval_batch: 512
   epoch: 1000
-  weight_decay: 1e-3
+  weight_decay: 1e-4
   lr_decay: 0.99
   optimizer: Adam
   grad_clip: 1.0

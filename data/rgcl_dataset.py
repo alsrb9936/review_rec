@@ -20,7 +20,7 @@ def rating_to_etype_name(rating):
     return str(value).replace(".", "_")
 
 
-class RGCLDataset(Dataset):
+class RGCLDataset(Dataset[dict[str, object]]):
     def __init__(self, cfg, split: str = "train"):
         self.cfg = cfg
         self.data_dir = _get_data_dir(cfg)
@@ -188,6 +188,46 @@ class RGCLDataset(Dataset):
 
         return graph
 
+    def build_test_subset(self, row_ids):
+        """Build an RGCL decoder graph/truth tensor for selected test rows.
+
+        ``row_ids`` must be zero-based indices aligned with ``test_*.npy`` and
+        ``common/test.csv``. The encoder graph remains train-only; only decoder
+        edges and truth ratings are subsetted.
+        """
+        row_ids = np.asarray(row_ids, dtype=np.int64)
+        if len(row_ids) == 0:
+            raise ValueError("RGCL test subset row_ids must not be empty.")
+
+        user_ids, item_ids, ratings = self.test_datas
+        max_idx = len(ratings) - 1
+        if int(row_ids.min()) < 0 or int(row_ids.max()) > max_idx:
+            raise IndexError(
+                f"RGCL test subset IDs out of range: min={int(row_ids.min())}, "
+                f"max={int(row_ids.max())}, test_size={len(ratings)}"
+            )
+
+        user_arr = np.asarray(user_ids, dtype=np.int64)[row_ids]
+        item_arr = np.asarray(item_ids, dtype=np.int64)[row_ids]
+        rating_arr = np.asarray(ratings, dtype=np.float32)[row_ids]
+        dec_graph = self._generate_dec_graph((user_arr, item_arr)).to(self._device)
+        truths = torch.from_numpy(rating_arr).float().to(self._device)
+        return self.test_enc_graph, dec_graph, truths
+
+    def evaluate_test_subset(self, row_ids, model):
+        enc_graph, dec_graph, truths = self.build_test_subset(row_ids)
+        model.eval()
+        with torch.no_grad():
+            pred_ratings, _, _ = model(
+                enc_graph,
+                dec_graph,
+                self.user_feature,
+                self.movie_feature,
+                cal_edge_mi=False,
+            )
+            predictions = model.expected_rating(pred_ratings)
+        return predictions.detach().cpu(), truths.detach().cpu()
+
     def to(self, device):
         self._device = device
         for name in [
@@ -213,7 +253,7 @@ class RGCLDataset(Dataset):
     def __len__(self):
         return 1
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> dict[str, object]:
         return {"dataset": self}
 
     @property

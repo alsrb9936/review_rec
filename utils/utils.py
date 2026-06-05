@@ -14,7 +14,7 @@ from data import DATASET_DICT
 
 
 GLOVE_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml", "neumf", "lightgcn", "rmg"}
-BERT_MODEL_NAMES = {"rgcl", "letter", "recafr", "mymodel_v1"}
+BERT_MODEL_NAMES = {"rgcl", "letter", "recafr", "mymodel_v1", "mymodel_v3", "mymodel_v4"}
 
 
 def set_seed(seed: int) -> None:

@@ -10,6 +10,10 @@ from models.mymodel_v1 import MyModelV1
 from models.letter import LETTER
 from models.recafr import RecAFR
 from models.rmg import RMG
+from models.mymodel_v2 import MyModelV2
+from models.mymodel_v3 import MyModelV3
+from models.mymodel_v4 import MyModelV4
+from models.mymodel_v5 import MyModelV5
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -23,4 +27,8 @@ MODEL_DICT = {
     "letter": LETTER,
     "recafr": RecAFR,
     "rmg": RMG,
+    "mymodel_v2": MyModelV2,
+    "mymodel_v3": MyModelV3,
+    "mymodel_v4": MyModelV4,
+    "mymodel_v5": MyModelV5,
 }

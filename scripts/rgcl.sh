@@ -2,11 +2,11 @@ cd ../
 
 DEVICE=0
 
-# python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=42 experiment.device=$DEVICE
-# python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=64 experiment.device=$DEVICE
-# python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=57 experiment.device=$DEVICE
-# python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=2025 experiment.device=$DEVICE
-# python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=2026 experiment.device=$DEVICE
+python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=42 experiment.device=$DEVICE
+python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=64 experiment.device=$DEVICE
+python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=57 experiment.device=$DEVICE
+python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=2025 experiment.device=$DEVICE
+python run.py model=rgcl data.dataset=Amazon_Musical_Instruments_14 experiment.seed=2026 experiment.device=$DEVICE
 
 # python run.py model=rgcl data.dataset=Amazon_Office_Products_14 experiment.seed=42 experiment.device=$DEVICE 
 # python run.py model=rgcl data.dataset=Amazon_Office_Products_14 experiment.seed=64 experiment.device=$DEVICE 
@@ -14,8 +14,8 @@ DEVICE=0
 # python run.py model=rgcl data.dataset=Amazon_Office_Products_14 experiment.seed=2025 experiment.device=$DEVICE 
 # python run.py model=rgcl data.dataset=Amazon_Office_Products_14 experiment.seed=2026 experiment.device=$DEVICE 
 
-python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=42 experiment.device=$DEVICE 
-python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=64 experiment.device=$DEVICE 
-python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=57 experiment.device=$DEVICE 
-python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=2025 experiment.device=$DEVICE 
-python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=2026 experiment.device=$DEVICE 
+# python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=42 experiment.device=$DEVICE 
+# python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=64 experiment.device=$DEVICE 
+# python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=57 experiment.device=$DEVICE 
+# python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=2025 experiment.device=$DEVICE 
+# python run.py model=rgcl data.dataset=Amazon_Digital_Music_14 experiment.seed=2026 experiment.device=$DEVICE 

@@ -8,11 +8,10 @@ model:
   kernel_size: 3
   id_emb_size: 8
   dropout_prob: 0.3
-  l2_reg_lambda: 0.0
-  attention_chunk_size: 64
+  attention_chunk_size: 32
 
 training:
-  batch: 8
+  batch: 64
   eval_batch: 128
   epoch: 100
   lr: 0.0001
