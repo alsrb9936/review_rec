@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - cfarg
+  - _self_
+
+model:
+  variant: cf_only
+  result_name: CF-only

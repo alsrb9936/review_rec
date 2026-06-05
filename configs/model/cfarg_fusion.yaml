@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - cfarg
+  - _self_
+
+model:
+  variant: fusion
+  result_name: Whole-review fusion
+  use_align_gate: false
+  gate_reg_weight: 0.0

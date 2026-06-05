@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+from typing import Any
 
 import torch
 from torch.utils.data import DataLoader
@@ -10,16 +11,33 @@ from utils.metric import compute_all_metrics
 
 
 class CFARGTrainer(BaseTrainer):
+    DIAGNOSTIC_KEYS = [
+        "user_cos",
+        "item_cos",
+        "user_cf_norm",
+        "item_cf_norm",
+        "user_review_proj_norm",
+        "item_review_proj_norm",
+        "user_injection_norm",
+        "item_injection_norm",
+        "user_injection_ratio",
+        "item_injection_ratio",
+        "effective_user_review_weight",
+        "effective_item_review_weight",
+    ]
+
     def train_step(self, batch) -> torch.Tensor:
         self.model.train()
         self.optimizer.zero_grad()
-        loss = self.model.calculate_loss(
+        loss_dict = self.model.calculate_loss(
             user_id=batch["user_id"],
             item_id=batch["item_id"],
             user_review=batch.get("user_review"),
             item_review=batch.get("item_review"),
             rating=batch["rating"],
+            return_dict=True,
         )
+        loss = loss_dict["loss"]
         loss.backward()
         grad_clip = float(self.cfg.training.get("grad_clip", 0.0))
         if grad_clip > 0:
@@ -34,6 +52,7 @@ class CFARGTrainer(BaseTrainer):
         user_gates = []
         item_gates = []
         review_scales = []
+        diagnostics: dict[str, list[torch.Tensor]] = {key: [] for key in self.DIAGNOSTIC_KEYS}
 
         with torch.no_grad():
             for batch in data_loader:
@@ -49,13 +68,21 @@ class CFARGTrainer(BaseTrainer):
                 all_targets.append(batch["rating"].view(-1).cpu())
                 user_gates.append(outputs["user_gate"].view(-1).cpu())
                 item_gates.append(outputs["item_gate"].view(-1).cpu())
+
                 if "review_scale" in outputs:
                     review_scales.append(outputs["review_scale"].view(-1).cpu())
+                for key in self.DIAGNOSTIC_KEYS:
+                    if key in outputs:
+                        diagnostics[key].append(outputs[key].view(-1).detach().cpu())
 
         metrics = compute_all_metrics(torch.cat(all_preds), torch.cat(all_targets))
         metrics.update(self._gate_stats(torch.cat(user_gates), torch.cat(item_gates)))
         if review_scales:
             metrics["review_scale"] = float(torch.cat(review_scales).mean().item())
+
+        for key, chunks in diagnostics.items():
+            if chunks:
+                metrics[f"avg_{key}"] = float(torch.cat(chunks).mean().item())
         return metrics
 
     def get_metric_name(self) -> str:
@@ -93,7 +120,11 @@ class CFARGTrainer(BaseTrainer):
                 f"MSE: {metrics.get('mse', 0):.4f}, MAE: {metrics.get('mae', 0):.4f}, "
                 f"UserGate: {metrics.get('avg_user_gate', 0):.4f}, "
                 f"ItemGate: {metrics.get('avg_item_gate', 0):.4f}, "
-                f"ReviewScale: {metrics.get('review_scale', 0):.4f}"
+                f"ReviewScale: {metrics.get('review_scale', 0):.4f}, "
+                f"UserCos: {metrics.get('avg_user_cos', 0):.4f}, "
+                f"ItemCos: {metrics.get('avg_item_cos', 0):.4f}, "
+                f"UserInjRatio: {metrics.get('avg_user_injection_ratio', 0):.4f}, "
+                f"ItemInjRatio: {metrics.get('avg_item_injection_ratio', 0):.4f}"
             )
 
             if current_metric < self.best_metric_value:
@@ -148,7 +179,7 @@ class CFARGTrainer(BaseTrainer):
     def _base_result_row(self, test_metrics: dict[str, float]) -> dict[str, object]:
         config_path = os.path.join(self.cfg.experiment.save_dir, "config.yaml")
         noise_cfg = self.cfg.get("noise", {})
-        return {
+        row: dict[str, object] = {
             "dataset": str(self.cfg.data.dataset),
             "model": str(self.cfg.model.get("result_name", self.cfg.model.variant)),
             "seed": int(self.cfg.experiment.seed),
@@ -169,6 +200,9 @@ class CFARGTrainer(BaseTrainer):
             "max_item_gate": test_metrics.get("max_item_gate"),
             "review_scale": test_metrics.get("review_scale"),
         }
+        for key in self.DIAGNOSTIC_KEYS:
+            row[f"avg_{key}"] = test_metrics.get(f"avg_{key}")
+        return row
 
     def _save_experiment_results(self, test_metrics: dict[str, float]):
         results_dir = str(self.cfg.experiment.get("results_dir", "results"))
@@ -180,29 +214,40 @@ class CFARGTrainer(BaseTrainer):
             gate_stats_path = os.path.join(results_dir, "gate_stats.csv")
             self._append_csv(gate_stats_path, row, self._columns_for(gate_stats_path))
 
-    @staticmethod
-    def _columns_for(path: str) -> list[str]:
+    @classmethod
+    def _columns_for(cls, path: str) -> list[str]:
         name = os.path.basename(path)
+        main_columns = [
+            "dataset", "model", "seed", "rmse", "mae", "best_epoch",
+            "avg_user_gate", "avg_item_gate", "std_user_gate", "std_item_gate",
+            "review_scale", "avg_user_cos", "avg_item_cos",
+            "avg_user_injection_ratio", "avg_item_injection_ratio",
+            "config_path", "checkpoint_path",
+        ]
         if name == "main_results.csv":
-            return [
-                "dataset", "model", "seed", "rmse", "mae", "best_epoch",
-                "avg_user_gate", "avg_item_gate", "review_scale", "config_path", "checkpoint_path",
-            ]
+            return main_columns
         if name == "noise_results.csv":
             return [
                 "dataset", "model", "seed", "noise_type", "noise_ratio", "rmse", "mae",
-                "avg_user_gate", "avg_item_gate", "review_scale",
+                "avg_user_gate", "avg_item_gate", "std_user_gate", "std_item_gate",
+                "review_scale", "avg_user_cos", "avg_item_cos",
+                "avg_user_injection_ratio", "avg_item_injection_ratio",
             ]
         if name == "gate_stats.csv":
             return [
-                "dataset", "model", "seed", "avg_user_gate", "avg_item_gate", "std_user_gate",
-                "std_item_gate", "min_user_gate", "max_user_gate", "min_item_gate", "max_item_gate",
-                "review_scale", "rmse", "mae", "checkpoint_path",
+                "dataset", "model", "seed",
+                "avg_user_gate", "avg_item_gate", "std_user_gate", "std_item_gate",
+                "min_user_gate", "max_user_gate", "min_item_gate", "max_item_gate",
+                "review_scale",
+                "avg_user_cos", "avg_item_cos",
+                "avg_user_cf_norm", "avg_item_cf_norm",
+                "avg_user_review_proj_norm", "avg_item_review_proj_norm",
+                "avg_user_injection_norm", "avg_item_injection_norm",
+                "avg_user_injection_ratio", "avg_item_injection_ratio",
+                "avg_effective_user_review_weight", "avg_effective_item_review_weight",
+                "rmse", "mae", "checkpoint_path",
             ]
-        return [
-            "dataset", "model", "seed", "rmse", "mae", "best_epoch",
-            "avg_user_gate", "avg_item_gate", "review_scale", "config_path", "checkpoint_path",
-        ]
+        return main_columns
 
     @staticmethod
     def _append_csv(path: str, row: dict[str, object], columns: list[str]):
@@ -213,6 +258,18 @@ class CFARGTrainer(BaseTrainer):
             if write_header:
                 writer.writeheader()
             writer.writerow({column: row.get(column, "") for column in columns})
+
+    @staticmethod
+    def _output_value(outputs: dict[str, Any], key: str, idx: int) -> object:
+        value = outputs.get(key)
+        if value is None:
+            return ""
+        if torch.is_tensor(value):
+            value = value.detach().cpu()
+            if value.numel() == 1:
+                return float(value.item())
+            return float(value.view(-1)[idx].item())
+        return value
 
     def _save_gate_outputs(self, data_loader: DataLoader[dict[str, torch.Tensor]]):
         if str(self.cfg.model.get("variant", "")) != "gated":
@@ -242,9 +299,15 @@ class CFARGTrainer(BaseTrainer):
                             "item_id": int(batch["item_id"][idx].detach().cpu().item()),
                             "rating": float(batch["rating"][idx].detach().cpu().item()),
                             "prediction": float(outputs["rating_pred"][idx].detach().cpu().item()),
-                            "user_gate": float(outputs["user_gate"][idx].detach().cpu().item()),
-                            "item_gate": float(outputs["item_gate"][idx].detach().cpu().item()),
-                            "review_scale": float(outputs["review_scale"].detach().cpu().item()),
+                            "user_gate": self._output_value(outputs, "user_gate", idx),
+                            "item_gate": self._output_value(outputs, "item_gate", idx),
+                            "review_scale": self._output_value(outputs, "review_scale", idx),
+                            "user_cos": self._output_value(outputs, "user_cos", idx),
+                            "item_cos": self._output_value(outputs, "item_cos", idx),
+                            "user_injection_ratio": self._output_value(outputs, "user_injection_ratio", idx),
+                            "item_injection_ratio": self._output_value(outputs, "item_injection_ratio", idx),
+                            "effective_user_review_weight": self._output_value(outputs, "effective_user_review_weight", idx),
+                            "effective_item_review_weight": self._output_value(outputs, "effective_item_review_weight", idx),
                         }
                     )
                     if len(rows) >= sample_limit:
@@ -256,6 +319,9 @@ class CFARGTrainer(BaseTrainer):
         columns = [
             "dataset", "model", "seed", "user_id", "item_id", "rating", "prediction",
             "user_gate", "item_gate", "review_scale",
+            "user_cos", "item_cos",
+            "user_injection_ratio", "item_injection_ratio",
+            "effective_user_review_weight", "effective_item_review_weight",
         ]
         write_header = not os.path.exists(path)
         with open(path, "a", newline="", encoding="utf-8") as f:
