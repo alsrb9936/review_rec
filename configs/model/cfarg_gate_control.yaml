@@ -6,12 +6,14 @@ defaults:
 
 model:
   variant: gated
-  result_name: CFARG-gate-control
-  review_scale_init: 0.1
+  result_name: CFARG-residual
+  score_mode: residual
+  review_scale_init: 0.003
   review_scale_trainable: false
   gate_bias_init: -2.0
-  gate_reg_weight: 0.001
+  gate_reg_weight: 0.01
   detach_cf_for_gate: true
+  detach_review_for_gate: true
   use_align_gate: true
   align_temperature: 5.0
-  align_threshold: 0.0
+  align_threshold: 0.2
