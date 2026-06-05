@@ -34,9 +34,13 @@ class CFARG(nn.Module):
         fusion: CF + projected review without sample-wise gate.
         gated: CF + gated projected review residual.
 
-    The gated variant is intentionally conservative: review_scale can be fixed,
-    gate usage can be regularized, and the MLP gate can be multiplied by an
-    explicit cosine-based CF-review alignment factor.
+    score_mode:
+        representation: dot(e_cf + scaled review, e_cf + scaled review).
+            This is the original representation-level fusion and includes a
+            review-review term.
+        residual: CF score plus CF-review cross residuals only. This removes
+            the direct review-review dot product and is the recommended mode
+            for CF-aligned review gating.
     """
 
     def __init__(self, cfg: DictConfig):
@@ -50,10 +54,15 @@ class CFARG(nn.Module):
         if self.variant not in {"cf_only", "review_only", "fusion", "gated"}:
             raise ValueError(f"Unsupported CFARG variant: {self.variant}")
 
+        self.score_mode = str(cfg.model.get("score_mode", "residual"))
+        if self.score_mode not in {"representation", "residual"}:
+            raise ValueError(f"Unsupported CFARG score_mode: {self.score_mode}")
+
         self.gate_bias_init = float(cfg.model.get("gate_bias_init", -2.0))
         self.gate_reg_weight = float(cfg.model.get("gate_reg_weight", 0.0))
         self.review_scale_trainable = _cfg_bool(cfg.model, "review_scale_trainable", False)
         self.detach_cf_for_gate = _cfg_bool(cfg.model, "detach_cf_for_gate", True)
+        self.detach_review_for_gate = _cfg_bool(cfg.model, "detach_review_for_gate", True)
         self.use_align_gate = _cfg_bool(cfg.model, "use_align_gate", True)
         self.align_temperature = float(cfg.model.get("align_temperature", 5.0))
         self.align_threshold = float(cfg.model.get("align_threshold", 0.0))
@@ -71,7 +80,7 @@ class CFARG(nn.Module):
         self.user_cf_norm = nn.LayerNorm(self.embedding_dim)
         self.item_cf_norm = nn.LayerNorm(self.embedding_dim)
 
-        review_scale_init = float(cfg.model.get("review_scale_init", 0.1))
+        review_scale_init = float(cfg.model.get("review_scale_init", 0.01))
         if self.review_scale_trainable:
             self.review_scale = nn.Parameter(torch.tensor(review_scale_init, dtype=torch.float32))
         else:
@@ -126,12 +135,16 @@ class CFARG(nn.Module):
         cf_for_gate = cf_emb.detach() if self.detach_cf_for_gate else cf_emb
         return norm_layer(cf_for_gate)
 
+    def _review_gate_view(self, review_proj: torch.Tensor) -> torch.Tensor:
+        return review_proj.detach() if self.detach_review_for_gate else review_proj
+
     def forward(self, user_id, item_id, user_review=None, item_review=None, return_dict=False):
         user_id = user_id.view(-1).long()
         item_id = item_id.view(-1).long()
         user_cf = self.user_embedding(user_id)
         item_cf = self.item_embedding(item_id)
         batch_size = user_id.numel()
+        sqrt_dim = math.sqrt(float(self.embedding_dim))
 
         zero_col = user_cf.new_zeros((batch_size, 1))
         zero_vec = user_cf.new_zeros((batch_size, self.embedding_dim))
@@ -141,48 +154,57 @@ class CFARG(nn.Module):
         item_injection = zero_vec
         user_cos = zero_col
         item_cos = zero_col
+        user_gate = zero_col
+        item_gate = zero_col
+
+        cf_score = torch.sum(user_cf * item_cf, dim=-1) / sqrt_dim
 
         if self.variant == "cf_only":
-            user_z = user_cf
-            item_z = item_cf
-            user_gate = zero_col
-            item_gate = zero_col
+            score = cf_score
         else:
             if user_review is None or item_review is None:
                 raise ValueError(f"CFARG variant '{self.variant}' requires user/item review embeddings.")
+
             user_proj = self.user_review_norm(self.user_review_proj(user_review.float()))
             item_proj = self.item_review_norm(self.item_review_proj(item_review.float()))
 
             user_cf_gate = self._cf_gate_view(user_cf, self.user_cf_norm)
             item_cf_gate = self._cf_gate_view(item_cf, self.item_cf_norm)
-            user_cos = self._cosine(user_cf_gate, user_proj)
-            item_cos = self._cosine(item_cf_gate, item_proj)
+            user_proj_gate = self._review_gate_view(user_proj)
+            item_proj_gate = self._review_gate_view(item_proj)
+            user_cos = self._cosine(user_cf_gate, user_proj_gate)
+            item_cos = self._cosine(item_cf_gate, item_proj_gate)
 
             if self.variant == "review_only":
                 user_gate = torch.ones((batch_size, 1), device=user_id.device, dtype=user_cf.dtype)
                 item_gate = torch.ones((batch_size, 1), device=item_id.device, dtype=item_cf.dtype)
-                user_injection = self.review_scale * user_gate * user_proj
-                item_injection = self.review_scale * item_gate * item_proj
-                user_z = user_injection
-                item_z = item_injection
             elif self.variant == "fusion":
                 user_gate = torch.ones((batch_size, 1), device=user_id.device, dtype=user_cf.dtype)
                 item_gate = torch.ones((batch_size, 1), device=item_id.device, dtype=item_cf.dtype)
-                user_injection = self.review_scale * user_gate * user_proj
-                item_injection = self.review_scale * item_gate * item_proj
-                user_z = user_cf + user_injection
-                item_z = item_cf + item_injection
             else:
-                user_gate = self._make_gate(user_cf_gate, user_proj, self.user_gate)
-                item_gate = self._make_gate(item_cf_gate, item_proj, self.item_gate)
-                cf_score = torch.sum(user_cf * item_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
+                user_gate = self._make_gate(user_cf_gate, user_proj_gate, self.user_gate)
+                item_gate = self._make_gate(item_cf_gate, item_proj_gate, self.item_gate)
 
-                user_review_score = torch.sum(user_gate * user_proj * item_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
-                item_review_score = torch.sum(item_gate * item_proj * user_cf, dim=-1) / math.sqrt(float(self.embedding_dim))
+            user_injection = self.review_scale * user_gate * user_proj
+            item_injection = self.review_scale * item_gate * item_proj
 
-                score = cf_score + self.review_scale * (user_review_score + item_review_score)
+            if self.score_mode == "representation":
+                if self.variant == "review_only":
+                    user_z = user_injection
+                    item_z = item_injection
+                else:
+                    user_z = user_cf + user_injection
+                    item_z = item_cf + item_injection
+                score = torch.sum(user_z * item_z, dim=-1) / sqrt_dim
+            else:
+                if self.variant == "review_only":
+                    review_score = torch.sum(user_proj * item_proj, dim=-1) / sqrt_dim
+                    score = self.review_scale * review_score
+                else:
+                    user_review_score = torch.sum(user_gate * user_proj * item_cf, dim=-1) / sqrt_dim
+                    item_review_score = torch.sum(item_gate * item_proj * user_cf, dim=-1) / sqrt_dim
+                    score = cf_score + self.review_scale * (user_review_score + item_review_score)
 
-        score = torch.sum(user_z * item_z, dim=-1) / math.sqrt(float(self.embedding_dim))
         bias = self.global_bias + self.user_bias(user_id).squeeze(-1) + self.item_bias(item_id).squeeze(-1)
         rating_pred = score + bias
 
