@@ -4,15 +4,17 @@ model_name: cfarg
 
 model:
   variant: gated
-  result_name: CFARG-gate-control
+  result_name: CFARG-residual
   embedding_dim: 64
   gate_hidden_dim: 64
   dropout: 0.1
-  review_scale_init: 0.1
+  score_mode: residual
+  review_scale_init: 0.01
   review_scale_trainable: false
   gate_bias_init: -2.0
   gate_reg_weight: 0.001
   detach_cf_for_gate: true
+  detach_review_for_gate: true
   use_align_gate: true
   align_temperature: 5.0
   align_threshold: 0.0
@@ -37,8 +39,8 @@ evaluation:
   gate_sample_size: 1000
 
 experiment:
-  results_dir: ./results/cfarg_gate_control
-  result_file: ./results/cfarg_gate_control/main_results.csv
+  results_dir: ./results/cfarg_residual
+  result_file: ./results/cfarg_residual/main_results.csv
   fast_dev_run: false
   fast_dev_samples: 64
   debug: false
