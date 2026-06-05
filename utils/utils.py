@@ -14,7 +14,7 @@ from data import DATASET_DICT
 
 
 GLOVE_MODEL_NAMES = {"deepconn", "narre", "transnet", "daml", "neumf", "lightgcn", "rmg"}
-BERT_MODEL_NAMES = {"rgcl", "letter", "recafr", "mymodel_v1", "mymodel_v3", "mymodel_v4"}
+BERT_MODEL_NAMES = {"rgcl", "letter", "recafr", "mymodel_v1", "mymodel_v3", "mymodel_v4", "cfarg"}
 
 
 def set_seed(seed: int) -> None:
@@ -266,6 +266,17 @@ def get_dataloader(cfg, model_name):
     train_dataset = dataset_cls(cfg, split="train")
     valid_dataset = dataset_cls(cfg, split="valid")
     test_dataset = dataset_cls(cfg, split="test")
+
+    if bool(cfg.experiment.get("fast_dev_run", False)):
+        from torch.utils.data import Subset
+
+        limit = int(cfg.experiment.get("fast_dev_samples", 64))
+        train_dataset = Subset(train_dataset, list(range(min(limit, len(train_dataset)))))
+        valid_dataset = Subset(valid_dataset, list(range(min(limit, len(valid_dataset)))))
+        test_dataset = Subset(test_dataset, list(range(min(limit, len(test_dataset)))))
+        with open_dict(cfg):
+            cfg.training.epoch = min(int(cfg.training.epoch), 1)
+            cfg.evaluation.early_stop_patience = 1
 
     train_batch_size = cfg.training.batch
     train_shuffle = True

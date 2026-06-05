@@ -14,6 +14,7 @@ from models.mymodel_v2 import MyModelV2
 from models.mymodel_v3 import MyModelV3
 from models.mymodel_v4 import MyModelV4
 from models.mymodel_v5 import MyModelV5
+from models.cfarg import CFARG
 
 MODEL_DICT = {
     "neumf": NeuMF,
@@ -31,4 +32,5 @@ MODEL_DICT = {
     "mymodel_v3": MyModelV3,
     "mymodel_v4": MyModelV4,
     "mymodel_v5": MyModelV5,
+    "cfarg": CFARG,
 }

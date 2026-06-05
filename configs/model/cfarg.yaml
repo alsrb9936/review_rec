@@ -1,0 +1,44 @@
+# @package _global_
+
+model_name: cfarg
+
+model:
+  variant: gated
+  result_name: CFARG
+  embedding_dim: 64
+  gate_hidden_dim: 64
+  dropout: 0.1
+  review_scale_init: 0.1
+  gate_bias_init: -2.0
+
+data:
+  type: bert
+  exclude_target_review: true
+
+training:
+  lr: 0.001
+  batch: 256
+  eval_batch: 512
+  epoch: 100
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+  grad_clip: 1.0
+
+evaluation:
+  eval_step: 1
+  early_stop_patience: 10
+  gate_sample_size: 1000
+
+experiment:
+  results_dir: ./results/cfarg_fixed
+  result_file: ./results/cfarg_fixed/main_results.csv
+  fast_dev_run: false
+  fast_dev_samples: 64
+  debug: false
+
+noise:
+  enabled: false
+  type: random_review_replacement
+  ratio: 0.0
+  side: both

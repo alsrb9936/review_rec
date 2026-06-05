@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - cf_only
+  - _self_
+
+model:
+  variant: fusion
+  result_name: Whole-review fusion
+  embedding_dim: 64
+  gate_hidden_dim: 64
+  dropout: 0.1
+  review_scale_init: 0.1
+  gate_bias_init: -2.0
+
+training:
+  batch: 128
+  eval_batch: 512
+  epoch: 100
+  lr: 0.001
+  weight_decay: 1e-4
+  lr_decay: 0.99
+  optimizer: Adam
+  grad_clip: 1.0

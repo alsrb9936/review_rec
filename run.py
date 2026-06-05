@@ -152,6 +152,15 @@ def _save_eval_only_results(cfg: DictConfig, results: dict[str, object]) -> None
 
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
+    debug_enabled = bool(cfg.experiment.get("debug", False))
+    fast_dev_enabled = bool(cfg.experiment.get("fast_dev_run", False))
+    if debug_enabled or fast_dev_enabled:
+        with open_dict(cfg):
+            cfg.experiment.fast_dev_run = True
+            cfg.training.epoch = min(int(cfg.training.epoch), 1)
+            cfg.training.batch = min(int(cfg.training.batch), 32)
+            cfg.training.eval_batch = min(int(cfg.training.eval_batch), 64)
+            cfg.evaluation.early_stop_patience = 1
     print(OmegaConf.to_yaml(cfg))
 
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")

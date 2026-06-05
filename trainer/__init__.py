@@ -14,6 +14,7 @@ from trainer.mymodel_v2_trainer import MyModelV2Trainer
 from trainer.mymodel_v3_trainer import MyModelV3Trainer
 from trainer.mymodel_v4_trainer import MyModelV4Trainer
 from trainer.mymodel_v5_trainer import MyModelV5Trainer
+from trainer.cfarg_trainer import CFARGTrainer
 
 MODEL_TRAINER_DICT = {
     "neumf": NeuMFTrainer,
@@ -31,4 +32,5 @@ MODEL_TRAINER_DICT = {
     "mymodel_v3": MyModelV3Trainer,
     "mymodel_v4": MyModelV4Trainer,
     "mymodel_v5": MyModelV5Trainer,
+    "cfarg": CFARGTrainer,
 }

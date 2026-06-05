@@ -13,6 +13,7 @@ from data.mymodel_v2_dataset import MyModelV2Dataset
 from data.mymodel_v3_dataset import MyModelV3Dataset
 from data.mymodel_v4_dataset import MyModelV4Dataset
 from data.mymodel_v5_dataset import MyModelV5Dataset
+from data.cfarg_dataset import CFARGDataset
 DATASET_DICT = {
     "neumf": NeuMFDataset,
     "deepconn": DeepCoNNDataset,
@@ -29,4 +30,5 @@ DATASET_DICT = {
     "mymodel_v3": MyModelV3Dataset,
     "mymodel_v4": MyModelV4Dataset,
     "mymodel_v5": MyModelV5Dataset,
+    "cfarg": CFARGDataset,
 }

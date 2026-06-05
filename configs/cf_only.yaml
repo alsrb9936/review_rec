@@ -2,21 +2,32 @@
 
 defaults:
   - _self_
-  - model: base
 
 hydra:
   run:
     dir: .
   output_subdir: null
 
+model_name: cfarg
+
+model:
+  variant: cf_only
+  result_name: CF-only
+  embedding_dim: 64
+  gate_hidden_dim: 64
+  dropout: 0.3
+  review_scale_init: 0.1
+  gate_bias_init: -2.0
+
 training:
   batch: 128
   eval_batch: 512
   epoch: 100
   lr: 0.001
-  weight_decay: 0.0
+  weight_decay: 1e-4
   lr_decay: 0.99
   optimizer: Adam
+  grad_clip: 1.0
 
 evaluation:
   eval_step: 1
@@ -24,6 +35,7 @@ evaluation:
   eval_only: false
   checkpoint_path: null
   sentiment_subset: null
+  gate_sample_size: 1000
 
 data:
   root: ./dataset
@@ -33,17 +45,25 @@ data:
   stopwords_path: ./word2vec/stopwords.txt
   punctuation_path: ./word2vec/punctuations.txt
   dataset: Amazon_All_Beauty_18
-  type: None
-
-sentiment:
-  model_name: cardiffnlp/twitter-roberta-large-topic-sentiment-latest
-  batch_size: 32
+  type: bert
+  exclude_target_review: true
 
 experiment:
   seed: 42
   device: 0
   save_dir: ./outputs
+  results_dir: ./results/cfarg_fixed
+  result_file: ./results/cfarg_fixed/main_results.csv
   log_step: 10
+  fast_dev_run: false
+  fast_dev_samples: 64
+  debug: false
+
+noise:
+  enabled: false
+  type: random_review_replacement
+  ratio: 0.0
+  side: both
 
 stats:
   num_users: 0
