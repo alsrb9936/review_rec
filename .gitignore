@@ -1,9 +1,9 @@
-AGENTS.md
+
 *.pt
 *.pth
 *.pkl
 *.txt
-*.csv
+/dataset
 *.npy
 run.log
 preprocess.log
