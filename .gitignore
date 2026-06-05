@@ -4,6 +4,7 @@
 *.pkl
 *.txt
 /dataset
+/raw_dataset
 *.npy
 run.log
 preprocess.log

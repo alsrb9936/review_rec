@@ -28,6 +28,8 @@ COMMON_OVERRIDES=(
 
 for dataset in "${DATASETS[@]}"; do
   for seed in "${SEEDS[@]}"; do
+    python run.py model=cfarg_cf_only data.dataset="${dataset}" experiment.seed="${seed}" "${COMMON_OVERRIDES[@]}"
+    python run.py model=cfarg_fusion data.dataset="${dataset}" experiment.seed="${seed}" "${COMMON_OVERRIDES[@]}"
     python run.py model=cfarg_gate_control data.dataset="${dataset}" experiment.seed="${seed}" "${COMMON_OVERRIDES[@]}"
   done
 done
